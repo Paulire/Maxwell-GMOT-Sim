@@ -1,1 +1,1 @@
-# Maxwell-GMOT-Sim
+# Maxwell Simulation using Meep for modelling GMOTs
