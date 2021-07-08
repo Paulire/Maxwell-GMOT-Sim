@@ -3,9 +3,11 @@ from meep import materials as mat
 import numpy as np
 from matplotlib import pyplot as plt
 
-def __default_greating__( self, cen, size_x, size_y ):
-    geo = [ mp.Block( size=mp.Vector3( self.period - self.grating_width, size_y, self.grating_height ),
-                      center=mp.Vector3( cen[0] + 0.5*( self.period - self.grating_width ), cen[1], 0.5*( 2*cen[2]+self.grating_height ) ),
+def __default_greating__( self, cen, size_x, size_z ):
+    slit_len = self.period - self.grating_width
+
+    geo = [ mp.Block( size=mp.Vector3( slit_len, self.grating_height, size_z ),
+                      center=mp.Vector3( cen[0],  0.5*( 2*cen[1]+self.grating_height), cen[2] ),
                       material=self.grating_material ) ]
 
     return geo
@@ -43,6 +45,12 @@ class linear_gmot:
         except:
             self.greating_func = __default_greating__
 
+        # Should this be a 2D simulation
+        try:
+            self.run_2D = kwarg["run_2D"]
+        except:
+            self.run_2D = False
+
         # Simulation Polarization
         try:
             if kwarg["polarization"] == 'X':
@@ -56,7 +64,7 @@ class linear_gmot:
             else:
                 self.polarization = None
         except:
-            self.polarization = mp.Ey
+            self.polarization = mp.Ez
 
         if self.polarization == None:
             raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
@@ -77,6 +85,8 @@ class linear_gmot:
             raise TypeError("'grating_material' must be of type 'meep.geom.Medium'")
         elif type( self.greating_func ) != type( __default_greating__ ):
             raise TypeError("'greating_func' must be a function not " + str( type( __default_greating__ ) ))
+        elif type( self.run_2D ) != bool:
+            raise TypeError("'run_2D' must a 'bool'")
 
     def run( self ):
         frq = 1
@@ -85,41 +95,66 @@ class linear_gmot:
         ### Build cell ###
         # chip size - the size of the chip in the x/y direction
         # padding - the distance between the sides of the chip and the PML layer
+        # The x-z plane where the chip sits, the x direction give a cross section of the gratings
+        # The y direction is the field propergation direction
         #################
         dpml = 1
-        chip_size = self.num_period*self.period + ( self.period - self.grating_width )
-        padding = 2*self.period
+        chip_size_x = self.num_period*self.period
+        chip_size_z = 0 if self.run_2D == True else 1
+        padding = 2*self.period*0
         plate_thickness = 1
 
-        sx = dpml + padding + chip_size + padding + dpml
-        sy = sx
-        sz = dpml + plate_thickness + self.grating_height + 3 + dpml
+        sx = dpml + padding + chip_size_x + padding + dpml
+        sy = dpml + (plate_thickness + self.grating_height)*1.1  + dpml
+        sz = 0 if self.run_2D == True else chip_size_y + 2*padding + 2*dpml
         cell = mp.Vector3( sx, sy, sz )
         pml_layer = [ mp.PML( dpml ) ]
 
         # Create source
         source = [ mp.Source( mp.GaussianSource( frq, dfrq ),
                               component=self.polarization, 
-                              center=mp.Vector3( z=0.5*sz-dpml ),
-                              size=mp.Vector3( chip_size, chip_size ) ) ]
+                              center=mp.Vector3( y=0.5*sy-dpml ),
+                              size=mp.Vector3( chip_size_x, z=chip_size_z ) ) ]
 
         # Build greating
-        geometry = [ mp.Block( size=mp.Vector3( chip_size, chip_size, plate_thickness ),
-                               center=mp.Vector3( z=-0.5*( sz + plate_thickness ) + dpml ),
+        geometry = [ mp.Block( size=mp.Vector3( chip_size_x, plate_thickness, chip_size_z),
+                               center=mp.Vector3( y=-0.5*( sy - plate_thickness ) + dpml ),
                                material=self.grating_material ) ]
 
-        x_cen = np.linspace( -0.5*chip_size, 0.5*chip_size, self.num_period, endpoint=False) + 0.5*self.period
-        z_cen = -0.5*sz + dpml + plate_thickness
+        x_cen = np.linspace( -0.5*chip_size_x, 0.5*chip_size_x, self.num_period, endpoint=False)
+        x_cen += 0.5*(x_cen[1] - x_cen[0])
+        y_cen = -0.5*sy + dpml + plate_thickness
 
         for i in range( self.num_period ):
             geometry.extend( self.greating_func( self, 
-                                                 [ x_cen[i], 0, z_cen ],
+                                                 [ x_cen[i], y_cen, 0 ],
                                                  self.period,
-                                                 chip_size ) )
+                                                 chip_size_z ) )
 
 
-        symmetries = [ mp.Mirror( mp.Y ) ]
+        symmetries = [ mp.Mirror( mp.X ) ]
+
         sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
-        sim.run(until=10)
+
+        animate = mp.Animate2D(sim,
+                fields=mp.Ez,
+                realtime=True,
+                field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none'},
+                boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                eps_parameters={'cmap':'binary'},
+                output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+
+        sim.run(mp.at_every(0.5,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
+        
+        animate.to_mp4( 6, 'anm.mp4' )
+        """sim.run(until=10)
+        sim.plot2D(fields=mp.Ez,
+                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
+                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+        plt.show()"""
+
+
+
 
 
