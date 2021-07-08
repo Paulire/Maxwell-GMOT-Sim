@@ -26,6 +26,9 @@ class linear_gmot:
         self.grating_width = float( grating_width )        # Width of the deep part of the grating
         self.grating_height = float( grating_height )      # The hight of the grating
 
+        # The simulation object will be here and can be accessed anywhere
+        sim = []
+
         # Set the optional verlibles
         # The grating matirial
         try:
@@ -88,9 +91,10 @@ class linear_gmot:
         elif type( self.run_2D ) != bool:
             raise TypeError("'run_2D' must a 'bool'")
 
-    def run( self ):
-        frq = 1
-        dfrq = 1
+    def run( self, **kwarg ):
+        wvl = 1.0
+        frq = 1/wvl
+        dfrq = 0.5
 
         ### Build cell ###
         # chip size - the size of the chip in the x/y direction
@@ -98,15 +102,15 @@ class linear_gmot:
         # The x-z plane where the chip sits, the x direction give a cross section of the gratings
         # The y direction is the field propergation direction
         #################
-        dpml = 1
+        dpml = 0.5*wvl*3
         chip_size_x = self.num_period*self.period
         chip_size_z = 0 if self.run_2D == True else 1
         padding = 2*self.period*0
         plate_thickness = 1
 
         sx = dpml + padding + chip_size_x + padding + dpml
-        sy = dpml + (plate_thickness + self.grating_height)*1.1  + dpml
-        sz = 0 if self.run_2D == True else chip_size_y + 2*padding + 2*dpml
+        sy = dpml + plate_thickness + self.grating_height + frq*5.0 + dpml
+        sz = 0 if self.run_2D == True else chip_size_z + 2*padding + 2*dpml
         cell = mp.Vector3( sx, sy, sz )
         pml_layer = [ mp.PML( dpml ) ]
 
@@ -116,7 +120,7 @@ class linear_gmot:
                               center=mp.Vector3( y=0.5*sy-dpml ),
                               size=mp.Vector3( chip_size_x, z=chip_size_z ) ) ]
 
-        # Build greating
+        # The greating base chip
         geometry = [ mp.Block( size=mp.Vector3( chip_size_x, plate_thickness, chip_size_z),
                                center=mp.Vector3( y=-0.5*( sy - plate_thickness ) + dpml ),
                                material=self.grating_material ) ]
@@ -125,6 +129,7 @@ class linear_gmot:
         x_cen += 0.5*(x_cen[1] - x_cen[0])
         y_cen = -0.5*sy + dpml + plate_thickness
 
+        # The gratings are built here
         for i in range( self.num_period ):
             geometry.extend( self.greating_func( self, 
                                                  [ x_cen[i], y_cen, 0 ],
@@ -132,29 +137,57 @@ class linear_gmot:
                                                  chip_size_z ) )
 
 
-        symmetries = [ mp.Mirror( mp.X ) ]
+        # Add symitries if not stated or is stated
+        try:
+            if kwarg["symmetries"] == True:
+                symmetries = [ mp.Mirror( mp.X ) ]
+                symmetries.append( mp.Mirror( mp.Z ) ) if self.run_2D == False else None
+            else:
+                symmetries = []
+        except:
+            symmetries = [ mp.Mirror( mp.X ) ]
+            symmetries.append( mp.Mirror( mp.Z ) ) if self.run_2D == False else None
 
-        sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
+        self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
 
-        animate = mp.Animate2D(sim,
+        # Check if the user has specified an animation
+        try:
+            if kwarg["animate"] == True:
+                animate = True
+            else:
+                animate == False
+        except:
+            animate = False
+        # If so, then run the animation
+        if animate == True:
+            self.__animate_func__( sx, sy )
+            return 0
+
+        # If no animation is requested, the a normal run will comence
+        # First the n2f monitor is added
+        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
+        n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ) )
+        n2f_obj = self.sim.add_near2far( frq, dfrq, 100, n2f_region )
+        
+
+        self.sim.run(until=7)
+        self.sim.plot2D(fields=mp.Ez,
+                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
+                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+        plt.show()
+
+    # The function builds the animation
+    def __animate_func__( self, sx, sy, **kwarg ):
+        animate = mp.Animate2D(self.sim,
                 fields=mp.Ez,
-                realtime=True,
+                normilize=True,
                 field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none'},
                 boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                 eps_parameters={'cmap':'binary'},
                 output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
 
-        sim.run(mp.at_every(0.5,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
+        self.sim.run(mp.at_every(0.5,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
         
         animate.to_mp4( 6, 'anm.mp4' )
-        """sim.run(until=10)
-        sim.plot2D(fields=mp.Ez,
-                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
-                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
-                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()"""
-
-
-
-
 
