@@ -92,7 +92,7 @@ class linear_gmot:
             raise TypeError("'run_2D' must a 'bool'")
 
     def run( self, **kwarg ):
-        wvl = 1.0
+        wvl = 0.78
         frq = 1/wvl
         dfrq = 0.5
 
@@ -102,11 +102,12 @@ class linear_gmot:
         # The x-z plane where the chip sits, the x direction give a cross section of the gratings
         # The y direction is the field propergation direction
         #################
-        dpml = 0.5*wvl*3
-        chip_size_x = self.num_period*self.period
-        chip_size_z = 0 if self.run_2D == True else 1
-        padding = 2*self.period*0
-        plate_thickness = 1
+        # Define the basic units for the simulation
+        dpml = 0.5*wvl*3                                    # PML thickness
+        chip_size_x = self.num_period*self.period           # Chip length in x
+        chip_size_z = 0 if self.run_2D == True else 1       
+        padding = 0                                         # Padding between the wall and the side of the chip
+        plate_thickness = 1                                 # Thickness of the chip
 
         sx = dpml + padding + chip_size_x + padding + dpml
         sy = dpml + plate_thickness + self.grating_height + frq*5.0 + dpml
@@ -170,7 +171,7 @@ class linear_gmot:
         n2f_obj = self.sim.add_near2far( frq, dfrq, 100, n2f_region )
         
 
-        self.sim.run(until=7)
+        self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e8) )
         self.sim.plot2D(fields=mp.Ez,
                    field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                    boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
