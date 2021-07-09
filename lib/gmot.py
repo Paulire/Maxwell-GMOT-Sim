@@ -27,7 +27,9 @@ class linear_gmot:
         self.grating_height = float( grating_height )      # The hight of the grating
 
         # The simulation object will be here and can be accessed anywhere
-        sim = []
+        self.sim = []
+        self.n2f_obj = None
+        self.ff_data = None
 
         # Set the optional verlibles
         # The grating matirial
@@ -119,7 +121,7 @@ class linear_gmot:
         source = [ mp.Source( mp.GaussianSource( frq, dfrq ),
                               component=self.polarization, 
                               center=mp.Vector3( y=0.5*sy-dpml ),
-                              size=mp.Vector3( chip_size_x, z=chip_size_z ) ) ]
+                              size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
 
         # The greating base chip
         geometry = [ mp.Block( size=mp.Vector3( chip_size_x, plate_thickness, chip_size_z),
@@ -136,7 +138,6 @@ class linear_gmot:
                                                  [ x_cen[i], y_cen, 0 ],
                                                  self.period,
                                                  chip_size_z ) )
-
 
         # Add symitries if not stated or is stated
         try:
@@ -167,16 +168,18 @@ class linear_gmot:
         # If no animation is requested, the a normal run will comence
         # First the n2f monitor is added
         n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
-        n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ) )
-        n2f_obj = self.sim.add_near2far( frq, dfrq, 100, n2f_region )
+        n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=+1.0)
+        self.n2f_obj = self.sim.add_near2far( frq, dfrq, 101, n2f_region )
         
 
-        self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e8) )
-        self.sim.plot2D(fields=mp.Ez,
+        self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
+
+        """self.sim.plot2D(fields=mp.Ez,
                    field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                    boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                    output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()
+        plt.show()"""
+        return 0
 
     # The function builds the animation
     def __animate_func__( self, sx, sy, **kwarg ):
@@ -186,9 +189,38 @@ class linear_gmot:
                 field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none'},
                 boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                 eps_parameters={'cmap':'binary'},
+                #realtime=True,
                 output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
 
         self.sim.run(mp.at_every(0.5,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
         
         animate.to_mp4( 6, 'anm.mp4' )
+        self.sim.plot2D(fields=mp.Ez,
+                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
+                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+        plt.show()
+
+    # Users invoke this request computaion of the far fields
+    def get_far_fields( self, ff_dist=5e3, ff_pnt=500, **kwarg ):
+        if self.n2f_obj == None:
+            raise RuntimeError( "Can't generate far fields without near field data first. Use 'run' first." )
+        
+        theta = np.pi/4
+        
+        ff_size = 2*abs(ff_dist)*np.tan( theta )
+        ff_res = ff_pnt/ff_size
+
+        self.ff_data = self.sim.get_farfields( self.n2f_obj,
+                                               resolution=ff_res,
+                                               center=mp.Vector3( y=ff_dist ),
+                                               size=mp.Vector3( x=ff_size ) )
+
+        ff_frqs = mp.get_near2far_freqs( self.n2f_obj )
+        indx = np.where( np.array( ff_frqs ) == 1/0.78 )[0][0]
+        field = np.abs( self.ff_data['Ez']**2 )
+        ff_array = np.linspace( -theta, theta, ff_pnt )
+
+        plt.plot( ff_array, field[ :, indx ] )
+        plt.show()
 
