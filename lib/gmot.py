@@ -234,11 +234,5 @@ class linear_gmot:
                                                center=mp.Vector3( y=ff_dist ),
                                                size=mp.Vector3( x=ff_size ) )
 
-        ff_frqs = mp.get_near2far_freqs( self.n2f_obj )
-        indx = np.where( np.array( ff_frqs ) == 1/0.78 )[0][0]
-        field = np.abs( self.ff_data['Ez']**2 )
-        ff_array = np.linspace( -theta, theta, ff_pnt )
-
-        plt.plot( ff_array, field[ :, indx ] )
-        plt.show()
+        return 0
 
