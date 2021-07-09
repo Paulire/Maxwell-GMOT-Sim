@@ -150,7 +150,6 @@ class linear_gmot:
             symmetries = [ mp.Mirror( mp.X ) ]
             symmetries.append( mp.Mirror( mp.Z ) ) if self.run_2D == False else None
 
-        self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
 
         # Check if the user has specified an animation
         try:
@@ -162,15 +161,34 @@ class linear_gmot:
             animate = False
         # If so, then run the animation
         if animate == True:
+            self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
             self.__animate_func__( sx, sy )
             return 0
 
         # If no animation is requested, the a normal run will comence
-        # First the n2f monitor is added
+        # The simulation must be run twice, once with no geomitry - in order to remove the incoming 
+        # field data from the n2f monitor
+        self.sim = mp.Simulation( cell, self.res, [], source, boundary_layers=pml_layer, symmetries=symmetries )
+
+        # This is the n2f for no geomitry
         n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
         n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=+1.0)
+        n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, 101, n2f_region )
+
+        # First run
+        self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
+
+        # Get the incoming n2f data
+        n2f_data_no_chip = self.sim.get_near2far_data( n2f_obj_no_chip )
+
+        self.sim.reset_meep()
+
+        # Second run with the chip
+        self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
+
+        # Add the near2far monitor then set to remove the incoming data
         self.n2f_obj = self.sim.add_near2far( frq, dfrq, 101, n2f_region )
-        
+        self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
