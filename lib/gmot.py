@@ -18,6 +18,7 @@ class linear_gmot:
                   period,
                   grating_width,
                   grating_height,
+                  output_to_file = True,
                   **kwarg ):
 
         # Set the verlibles which must be defined
@@ -25,6 +26,7 @@ class linear_gmot:
         self.period = float( period )                      # Size of grating
         self.grating_width = float( grating_width )        # Width of the deep part of the grating
         self.grating_height = float( grating_height )      # The hight of the grating
+        self.output_to_file = bool( output_to_file )
 
         # The simulation object will be here and can be accessed anywhere
         self.sim = []
@@ -75,6 +77,12 @@ class linear_gmot:
         except:
             self.dwvl = 0.01
 
+        # The output file can have an identifiy ID atached to it
+        try: 
+            self.file_ID = kwarg["file_ID"]
+        except:
+            self.file_ID = ""
+
         # Simulation Polarization
         try:
             if kwarg["polarization"] == 'X':
@@ -92,7 +100,6 @@ class linear_gmot:
 
         if self.polarization == None:
             raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
-
 
         # Check if input data is correct
         if grating_width >= period:
@@ -115,6 +122,10 @@ class linear_gmot:
             raise TypeError("'wvl' must be a float")
         elif type( self.dwvl ) != float:
             raise TypeError("'dwvl' must be a float")
+        elif type( self.output_to_file ) != bool:
+            raise TypeError("'output_file' must be a boolian")
+        elif type( self.file_ID ) != str:
+            raise TypeError("'file' must be a string")
 
     def run( self, **kwarg ):
         frq = 1/self.wvl
@@ -208,9 +219,10 @@ class linear_gmot:
         # Get the incoming n2f data
         n2f_data_no_chip = self.sim.get_near2far_data( n2f_obj_no_chip )
 
-        # Get the near field flux
+        # Get the near field flux and save if specified
         self.incidence_flux_data = mp.get_fluxes( self.incidence_flux_obj )
-        
+        if self.output_to_file != None:
+            self.sim.save_flux( "".join( [ self.file_ID, "-nf_flux" ] ), self.incidence_flux_obj)
 
         self.sim.plot2D(fields=mp.Ez,
                    field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
@@ -229,6 +241,9 @@ class linear_gmot:
         self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
+
+        if self.output_to_file != None:
+            self.sim.save_near2far( "".join( [ self.file_ID, "-near2far" ] ), self.n2f_obj )
 
         self.sim.plot2D(fields=mp.Ez,
                    field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
@@ -298,4 +313,6 @@ class linear_gmot:
         effic = np.abs( ff_flux[ ff_index ]/self.incidence_flux_data[ flux_index ] )
 
         return effic
-
+    
+    def load_passed_data( self, kwarg):
+        self.n2f_obj = self.sim.load_near2far( "".join( [ fname + "--near2far"] )
