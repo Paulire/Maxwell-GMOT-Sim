@@ -30,6 +30,9 @@ class linear_gmot:
         self.sim = []
         self.n2f_obj = None
         self.ff_data = None
+        self.incidence_flux_obj = None
+        self.flux_frq = None
+        self.nfrq = 11
 
         # Set the optional verlibles
         # The grating matirial
@@ -55,6 +58,22 @@ class linear_gmot:
             self.run_2D = kwarg["run_2D"]
         except:
             self.run_2D = False
+
+        # Wavelength selection (default 780nm)
+        try:
+            self.wvl = kwarg["wvl"] 
+            if type( self.wvl ) == int:
+                self.wvl = float( self.wvl )
+        except:
+            self.wvl = 0.780
+
+        # Wavelength range selection (default 10nm)
+        try:
+            self.dwvl = kwarg["dwvl"] 
+            if type( self.dwvl ) == int:
+                self.dwvl = float( self.dwvl )
+        except:
+            self.dwvl = 0.01
 
         # Simulation Polarization
         try:
@@ -92,20 +111,24 @@ class linear_gmot:
             raise TypeError("'greating_func' must be a function not " + str( type( __default_greating__ ) ))
         elif type( self.run_2D ) != bool:
             raise TypeError("'run_2D' must a 'bool'")
+        elif type( self.wvl ) != float:
+            raise TypeError("'wvl' must be a float")
+        elif type( self.dwvl ) != float:
+            raise TypeError("'dwvl' must be a float")
 
     def run( self, **kwarg ):
-        wvl = 0.78
-        frq = 1/wvl
+        frq = 1/self.wvl
+        dfrq = 1/( self.wvl - 0.5*self.dwvl ) - 1/( self.wvl + 0.5*self.dwvl )
         dfrq = 0.5
 
-        ### Build cell ###
+        ## Build cell ###
         # chip size - the size of the chip in the x/y direction
         # padding - the distance between the sides of the chip and the PML layer
         # The x-z plane where the chip sits, the x direction give a cross section of the gratings
         # The y direction is the field propergation direction
         #################
         # Define the basic units for the simulation
-        dpml = 0.5*wvl*3                                    # PML thickness
+        dpml = 0.5*self.wvl*3                                    # PML thickness
         chip_size_x = self.num_period*self.period           # Chip length in x
         chip_size_z = 0 if self.run_2D == True else 1       
         padding = 0                                         # Padding between the wall and the side of the chip
@@ -171,9 +194,13 @@ class linear_gmot:
         self.sim = mp.Simulation( cell, self.res, [], source, boundary_layers=pml_layer, symmetries=symmetries )
 
         # This is the n2f for no geomitry
-        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
-        n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=+1.0)
-        n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, 101, n2f_region )
+        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.10*self.grating_height )
+        n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
+        n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
+
+        # This is the incoming flux, it is idenical in shape to the n2f 
+        incidence_flux_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
+        self.incidence_flux_obj = self.sim.add_flux( frq, dfrq, self.nfrq, incidence_flux_region )
 
         # First run
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
@@ -181,22 +208,34 @@ class linear_gmot:
         # Get the incoming n2f data
         n2f_data_no_chip = self.sim.get_near2far_data( n2f_obj_no_chip )
 
+        # Get the near field flux
+        self.incidence_flux_data = mp.get_fluxes( self.incidence_flux_obj )
+        
+
+        self.sim.plot2D(fields=mp.Ez,
+                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
+                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+
+        #plt.show()
+
         self.sim.reset_meep()
 
         # Second run with the chip
         self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
 
         # Add the near2far monitor then set to remove the incoming data
-        self.n2f_obj = self.sim.add_near2far( frq, dfrq, 101, n2f_region )
+        self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
         self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
-        """self.sim.plot2D(fields=mp.Ez,
+        self.sim.plot2D(fields=mp.Ez,
                    field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                    boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                    output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()"""
+        #plt.show()
+        plt.cla()
         return 0
 
     # The function builds the animation
@@ -220,7 +259,7 @@ class linear_gmot:
         plt.show()
 
     # Users invoke this request computaion of the far fields
-    def get_far_fields( self, ff_dist=5e3, ff_pnt=500, **kwarg ):
+    def get_near_far_fields( self, ff_dist=5e3, ff_pnt=500, **kwarg ):
         if self.n2f_obj == None:
             raise RuntimeError( "Can't generate far fields without near field data first. Use 'run' first." )
         
@@ -233,6 +272,30 @@ class linear_gmot:
                                                resolution=ff_res,
                                                center=mp.Vector3( y=ff_dist ),
                                                size=mp.Vector3( x=ff_size ) )
-
+        
         return 0
+
+    def gmot_efficacy( self, **kwarg ):
+        # Compute the far field Poynting flux
+        ff_flux = []
+        
+        for i in range( self.nfrq ):
+            ff_flux.append( np.sum( [ 
+                            np.cross( np.array( [ self.ff_data['Ex'][j,i],
+                                                  self.ff_data['Ey'][j,i],
+                                                  self.ff_data['Ez'][j,i] ] ),
+                                      np.array( [ self.ff_data['Hx'][j,i],
+                                                  self.ff_data['Hy'][j,i],
+                                                  self.ff_data['Hz'][j,i] ] ),
+                                    ) for j in range( len( self.ff_data['Ex'][:,i] ) ) ] ) )
+
+        ff_frq = mp.get_near2far_freqs( self.n2f_obj )
+        self.flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
+
+        ff_index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
+        flux_index = np.where( np.array( self.flux_frq ) == 1/self.wvl )[0][0]
+
+        effic = np.abs( ff_flux[ ff_index ]/self.incidence_flux_data[ flux_index ] )
+
+        return effic
 
