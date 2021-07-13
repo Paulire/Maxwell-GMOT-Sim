@@ -33,6 +33,8 @@ class linear_gmot:
         self.incidence_flux_obj = None
         self.flux_frq = None
         self.nfrq = 11
+        self.net_loss_flux_obj = None
+        self.net_loss_flux_data = None
 
         # Set the optional verlibles
         # The grating matirial
@@ -165,8 +167,7 @@ class linear_gmot:
         # Add symitries if not stated or is stated
         try:
             if kwarg["symmetries"] == True:
-                symmetries = [ mp.Mirror( mp.X ) ]
-                symmetries.append( mp.Mirror( mp.Z ) ) if self.run_2D == False else None
+                raise
             else:
                 symmetries = []
         except:
@@ -191,10 +192,15 @@ class linear_gmot:
         # If no animation is requested, the a normal run will comence
         # The simulation must be run twice, once with no geomitry - in order to remove the incoming 
         # field data from the n2f monitor
-        self.sim = mp.Simulation( cell, self.res, [], source, boundary_layers=pml_layer, symmetries=symmetries )
+        self.sim = mp.Simulation( cell_size=cell,
+                                  resolution=self.res,
+                                  geometry=[],
+                                  sources=source,
+                                  boundary_layers=pml_layer,
+                                  symmetries=symmetries )
 
         # This is the n2f for no geomitry
-        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.10*self.grating_height )
+        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
         n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
         n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
 
@@ -211,31 +217,30 @@ class linear_gmot:
         # Get the near field flux
         self.incidence_flux_data = mp.get_fluxes( self.incidence_flux_obj )
         
-
-        self.sim.plot2D(fields=mp.Ez,
-                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
-                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
-                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-
-        #plt.show()
-
         self.sim.reset_meep()
 
         # Second run with the chip
-        self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
+        self.sim = mp.Simulation( cell_size=cell,
+                                  resolution=self.res,
+                                  geometry=geometry,
+                                  sources=source,
+                                  boundary_layers=pml_layer,
+                                  symmetries=symmetries )
+        
 
         # Add the near2far monitor then set to remove the incoming data
         self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
         self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
+        # Add flux monitor which is the net loss
+        self.net_loss_flux_obj = self.sim.add_flux( frq, dfrq, self.nfrq, incidence_flux_region )
+
+        # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
-        self.sim.plot2D(fields=mp.Ez,
-                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
-                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
-                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        #plt.show()
-        plt.cla()
+        # Get the net flux data
+        self.net_loss_flux_data = mp.get_fluxes( self.net_loss_flux_obj )
+
         return 0
 
     # The function builds the animation
@@ -272,10 +277,20 @@ class linear_gmot:
                                                resolution=ff_res,
                                                center=mp.Vector3( y=ff_dist ),
                                                size=mp.Vector3( x=ff_size ) )
-        
+
         return 0
 
+    # Determines the efficny of the GMOT in regards to it's flux (power)
     def gmot_efficacy( self, **kwarg ):
+        # Find the frequncy location for the wavelength
+        flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
+        index = np.where( np.array( flux_frq ) == 1/self.wvl )[0][0]
+
+        return abs( self.net_loss_flux_data[ index ]/self.incidence_flux_data[ index ] )
+
+
+
+    """def gmot_efficacy( self, **kwarg ):
         # Compute the far field Poynting flux
         ff_flux = []
         
@@ -287,7 +302,7 @@ class linear_gmot:
                                       np.array( [ self.ff_data['Hx'][j,i],
                                                   self.ff_data['Hy'][j,i],
                                                   self.ff_data['Hz'][j,i] ] ),
-                                    ) for j in range( len( self.ff_data['Ex'][:,i] ) ) ] ) )
+                                    ) for j in range( len( self.ff_data['Ex'][:,0] ) ) ] ) )
 
         ff_frq = mp.get_near2far_freqs( self.n2f_obj )
         self.flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
@@ -295,7 +310,7 @@ class linear_gmot:
         ff_index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
         flux_index = np.where( np.array( self.flux_frq ) == 1/self.wvl )[0][0]
 
-        effic = np.abs( ff_flux[ ff_index ]/self.incidence_flux_data[ flux_index ] )
+        effic = np.abs( ff_flux[ ff_index ]/(self.incidence_flux_data[ flux_index ]*12 ) )
 
-        return effic
+        return effic"""
 
