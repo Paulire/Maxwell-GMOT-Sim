@@ -2,6 +2,7 @@ import meep as mp
 from meep import materials as mat
 import numpy as np
 from matplotlib import pyplot as plt
+from sys import exit
 
 def __default_greating__( self, cen, size_x, size_z ):
     slit_len = self.period - self.grating_width
@@ -35,6 +36,8 @@ class linear_gmot:
         self.nfrq = 11
         self.net_loss_flux_obj = None
         self.net_loss_flux_data = None
+        self.ff_points = None 
+        self.ff_angles = None
 
         # Set the optional verlibles
         # The grating matirial
@@ -95,7 +98,6 @@ class linear_gmot:
         if self.polarization == None:
             raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
 
-
         # Check if input data is correct
         if grating_width >= period:
             raise ValueError("'grating_width' cannot be equal to or grater than 'period'")
@@ -143,7 +145,7 @@ class linear_gmot:
         pml_layer = [ mp.PML( dpml ) ]
 
         # Create source
-        source = [ mp.Source( mp.GaussianSource( frq, dfrq ),
+        source = [ mp.Source( mp.GaussianSource( frq, dfrq, is_integrated=True ),
                               component=self.polarization, 
                               center=mp.Vector3( y=0.5*sy-dpml ),
                               size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
@@ -264,21 +266,52 @@ class linear_gmot:
         plt.show()
 
     # Users invoke this request computaion of the far fields
-    def get_near_far_fields( self, ff_dist=5e3, ff_pnt=500, **kwarg ):
+    def get_far_field( self, ff_dist=5e3, ff_pnt=500, theta=np.pi/4, **kwarg ):
         if self.n2f_obj == None:
             raise RuntimeError( "Can't generate far fields without near field data first. Use 'run' first." )
         
-        theta = np.pi/4
-        
+        # Get the size of the far field and calculate is's resolution in pixles per micron
         ff_size = 2*abs(ff_dist)*np.tan( theta )
         ff_res = ff_pnt/ff_size
 
+        # Generate the far field data
         self.ff_data = self.sim.get_farfields( self.n2f_obj,
                                                resolution=ff_res,
                                                center=mp.Vector3( y=ff_dist ),
                                                size=mp.Vector3( x=ff_size ) )
 
+        # Save the position and angle data
+        self.ff_points = np.linspace( -0.5*ff_size, 0.5*ff_size, ff_pnt )
+        # fix line bellow
+        self.ff_angles = np.arctan( 0.5*ff_size/ff_res )
+
         return 0
+
+    # Plots the far field
+    def plot_far_field( self, x_axis="angle", fname=None, dpi=300, **kwarg ):
+        ff_p_vector = []
+        ff_frq = mp.get_flux_freqs( self.n2f_obj )
+        index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
+
+        ff_p_vector = [ 
+                        np.cross( np.array( [ self.ff_data['Ex'][i,index],
+                                              self.ff_data['Ey'][i,index],
+                                              self.ff_data['Ez'][i,index] ] ),
+                                  np.array( [ self.ff_data['Hx'][i,index],
+                                              self.ff_data['Hy'][i,index],
+                                              self.ff_data['Hz'][i,index] ] ),
+                                ) for i in range( len( self.ff_data['Ex'][:,0] ) ) ] 
+
+        fig, axs = plt.subplots()
+        axs.plot( self.far_field_angles, np.abs( self.ff_data )**2, '-k' )
+        axs.tick_params( direction="in" )
+        axs.grid( which="both" )
+        axs.set_ylabel( "Poynting vector", size="x-large")
+        axs.set_xlabel( "Angle (rad)", size="x-large") if x_axis == "angle" else axs.set_xlabel( "Far field position (μm)", size="x-large")
+
+        # Save the file unless show plot if it is named, else just show
+        plt.tight_layout()
+        plt.savefig( fname, dpi=dpi ) if fname == None else plt.show()
 
     # Determines the efficny of the GMOT in regards to it's flux (power)
     def gmot_efficacy( self, **kwarg ):
@@ -286,23 +319,22 @@ class linear_gmot:
         flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
         index = np.where( np.array( flux_frq ) == 1/self.wvl )[0][0]
 
+        # fix, (a-b)/a not b/a
         return abs( self.net_loss_flux_data[ index ]/self.incidence_flux_data[ index ] )
 
-
-
-    """def gmot_efficacy( self, **kwarg ):
+    """def n2f_efficacy( self, **kwarg ):
         # Compute the far field Poynting flux
         ff_flux = []
-        
+
         for i in range( self.nfrq ):
             ff_flux.append( np.sum( [ 
-                            np.cross( np.array( [ self.ff_data['Ex'][j,i],
+                            np.real( np.cross( np.conj( np.array( [ self.ff_data['Ex'][j,i],
                                                   self.ff_data['Ey'][j,i],
-                                                  self.ff_data['Ez'][j,i] ] ),
+                                                  self.ff_data['Ez'][j,i] ] )),
                                       np.array( [ self.ff_data['Hx'][j,i],
                                                   self.ff_data['Hy'][j,i],
                                                   self.ff_data['Hz'][j,i] ] ),
-                                    ) for j in range( len( self.ff_data['Ex'][:,0] ) ) ] ) )
+                                    ))[1] for j in range( len( self.ff_data['Ex'][:,0] ) ) ] ) )
 
         ff_frq = mp.get_near2far_freqs( self.n2f_obj )
         self.flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
@@ -310,7 +342,10 @@ class linear_gmot:
         ff_index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
         flux_index = np.where( np.array( self.flux_frq ) == 1/self.wvl )[0][0]
 
-        effic = np.abs( ff_flux[ ff_index ]/(self.incidence_flux_data[ flux_index ]*12 ) )
+        effic = np.abs( ff_flux[ ff_index ]/(self.incidence_flux_data[ flux_index ] ) )
+        coff = self.ff_points[1] - self.ff_points[0]
+        print( self.ff_points[1] - self.ff_points[0] )
+        print( effic )
 
-        return effic"""
+        return effic*coff"""
 
