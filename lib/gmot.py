@@ -2,6 +2,7 @@ import meep as mp
 from meep import materials as mat
 import numpy as np
 from matplotlib import pyplot as plt
+from sys import exit
 
 def __default_greating__( self, cen, size_x, size_z ):
     slit_len = self.period - self.grating_width
@@ -18,7 +19,6 @@ class linear_gmot:
                   period,
                   grating_width,
                   grating_height,
-                  output_to_file = True,
                   **kwarg ):
 
         # Set the verlibles which must be defined
@@ -26,7 +26,6 @@ class linear_gmot:
         self.period = float( period )                      # Size of grating
         self.grating_width = float( grating_width )        # Width of the deep part of the grating
         self.grating_height = float( grating_height )      # The hight of the grating
-        self.output_to_file = bool( output_to_file )
 
         # The simulation object will be here and can be accessed anywhere
         self.sim = []
@@ -35,6 +34,10 @@ class linear_gmot:
         self.incidence_flux_obj = None
         self.flux_frq = None
         self.nfrq = 11
+        self.net_loss_flux_obj = None
+        self.net_loss_flux_data = None
+        self.ff_points = None 
+        self.ff_angles = None
 
         # Set the optional verlibles
         # The grating matirial
@@ -122,8 +125,6 @@ class linear_gmot:
             raise TypeError("'wvl' must be a float")
         elif type( self.dwvl ) != float:
             raise TypeError("'dwvl' must be a float")
-        elif type( self.output_to_file ) != bool:
-            raise TypeError("'output_file' must be a boolian")
         elif type( self.file_ID ) != str:
             raise TypeError("'file' must be a string")
 
@@ -152,7 +153,7 @@ class linear_gmot:
         pml_layer = [ mp.PML( dpml ) ]
 
         # Create source
-        source = [ mp.Source( mp.GaussianSource( frq, dfrq ),
+        source = [ mp.Source( mp.GaussianSource( frq, dfrq, is_integrated=True ),
                               component=self.polarization, 
                               center=mp.Vector3( y=0.5*sy-dpml ),
                               size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
@@ -176,8 +177,7 @@ class linear_gmot:
         # Add symitries if not stated or is stated
         try:
             if kwarg["symmetries"] == True:
-                symmetries = [ mp.Mirror( mp.X ) ]
-                symmetries.append( mp.Mirror( mp.Z ) ) if self.run_2D == False else None
+                raise
             else:
                 symmetries = []
         except:
@@ -202,10 +202,15 @@ class linear_gmot:
         # If no animation is requested, the a normal run will comence
         # The simulation must be run twice, once with no geomitry - in order to remove the incoming 
         # field data from the n2f monitor
-        self.sim = mp.Simulation( cell, self.res, [], source, boundary_layers=pml_layer, symmetries=symmetries )
+        self.sim = mp.Simulation( cell_size=cell,
+                                  resolution=self.res,
+                                  geometry=[],
+                                  sources=source,
+                                  boundary_layers=pml_layer,
+                                  symmetries=symmetries )
 
         # This is the n2f for no geomitry
-        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.10*self.grating_height )
+        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
         n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
         n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
 
@@ -221,36 +226,31 @@ class linear_gmot:
 
         # Get the near field flux and save if specified
         self.incidence_flux_data = mp.get_fluxes( self.incidence_flux_obj )
-        if self.output_to_file != None:
-            self.sim.save_flux( "".join( [ self.file_ID, "-nf_flux" ] ), self.incidence_flux_obj)
-
-        self.sim.plot2D(fields=mp.Ez,
-                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
-                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
-                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-
-        #plt.show()
-
+        
         self.sim.reset_meep()
 
         # Second run with the chip
-        self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
+        self.sim = mp.Simulation( cell_size=cell,
+                                  resolution=self.res,
+                                  geometry=geometry,
+                                  sources=source,
+                                  boundary_layers=pml_layer,
+                                  symmetries=symmetries )
+        
 
         # Add the near2far monitor then set to remove the incoming data
         self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
         self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
+        # Add flux monitor which is the net loss
+        self.net_loss_flux_obj = self.sim.add_flux( frq, dfrq, self.nfrq, incidence_flux_region )
+
+        # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
-        if self.output_to_file != None:
-            self.sim.save_near2far( "".join( [ self.file_ID, "-near2far" ] ), self.n2f_obj )
+        # Get the net flux data
+        self.net_loss_flux_data = mp.get_fluxes( self.net_loss_flux_obj )
 
-        self.sim.plot2D(fields=mp.Ez,
-                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
-                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
-                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        #plt.show()
-        plt.cla()
         return 0
 
     # The function builds the animation
@@ -274,35 +274,111 @@ class linear_gmot:
         plt.show()
 
     # Users invoke this request computaion of the far fields
-    def get_near_far_fields( self, ff_dist=5e3, ff_pnt=500, **kwarg ):
+    def get_far_field( self, ff_dist=5e3, ff_pnt=500, theta=np.pi/4, **kwarg ):
         if self.n2f_obj == None:
             raise RuntimeError( "Can't generate far fields without near field data first. Use 'run' first." )
         
-        theta = np.pi/4
-        
+        # Get the size of the far field and calculate is's resolution in pixles per micron
         ff_size = 2*abs(ff_dist)*np.tan( theta )
         ff_res = ff_pnt/ff_size
 
+        # Generate the far field data
         self.ff_data = self.sim.get_farfields( self.n2f_obj,
                                                resolution=ff_res,
                                                center=mp.Vector3( y=ff_dist ),
                                                size=mp.Vector3( x=ff_size ) )
-        
-        return 0
 
+        # Save the position and angle data
+        self.ff_points = np.linspace( -0.5*ff_size, 0.5*ff_size, ff_pnt )
+        # fix line bellow
+        self.ff_angles = np.arctan( self.ff_points/ff_dist )
+        print(ff_size)
+
+        return 0
+    
+    def save_ff_data( self, fname=None, **kwarg ):
+        if fname == None or type( fname ) != str:
+            raise TypeError( "'fname' must be a string" )
+
+        import json
+
+        try:
+            data_file = open( fname, "w" )
+        except:
+            print("Could not save file")
+            return 1
+
+        output_data = self.ff_data
+        output_data.update( { "angles": self.ff_angles,"points": self.ff_points } )
+
+        output_data = { k:str(n.tolist()) for k,n in output_data.items() }
+
+        output_data.update( {
+            "num_period": self.num_period,
+            "period": self.period, 
+            "grating_width": self.grating_width,
+            "grating_height": self.grating_height,
+            "wvl": self.wvl } )
+
+        json_data = json.dumps( output_data )
+        del( output_data )
+
+        data_file.write( json_data )
+        del( json_data )
+
+        data_file.close()
+        del( data_file )
+
+        return 0 
+
+    # Plots the far field
+    def plot_far_field( self, x_axis="angle", fname=None, dpi=300, **kwarg ):
+        ff_p_vector = []
+        ff_frq = mp.get_flux_freqs( self.n2f_obj )
+        index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
+
+        ff_p_vector = [ 
+                        np.cross( np.array( [ self.ff_data['Ex'][i,index],
+                                              self.ff_data['Ey'][i,index],
+                                              self.ff_data['Ez'][i,index] ] ),
+                                  np.array( [ self.ff_data['Hx'][i,index],
+                                              self.ff_data['Hy'][i,index],
+                                              self.ff_data['Hz'][i,index] ] ),
+                                ) for i in range( len( self.ff_data['Ex'][:,0] ) ) ] 
+
+        fig, axs = plt.subplots()
+        axs.plot( self.far_field_angles, np.abs( self.ff_data )**2, '-k' )
+        axs.tick_params( direction="in" )
+        axs.grid( which="both" )
+        axs.set_ylabel( "Poynting vector", size="x-large")
+        axs.set_xlabel( "Angle (rad)", size="x-large") if x_axis == "angle" else axs.set_xlabel( "Far field position (μm)", size="x-large")
+
+        # Save the file unless show plot if it is named, else just show
+        plt.tight_layout()
+        plt.savefig( fname, dpi=dpi ) if fname == None else plt.show()
+
+    # Determines the efficny of the GMOT in regards to it's flux (power)
     def gmot_efficacy( self, **kwarg ):
+        # Find the frequncy location for the wavelength
+        flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
+        index = np.where( np.array( flux_frq ) == 1/self.wvl )[0][0]
+
+        # fix, (a-b)/a not b/a
+        return abs( self.net_loss_flux_data[ index ]/self.incidence_flux_data[ index ] )
+
+    """def n2f_efficacy( self, **kwarg ):
         # Compute the far field Poynting flux
         ff_flux = []
-        
+
         for i in range( self.nfrq ):
             ff_flux.append( np.sum( [ 
-                            np.cross( np.array( [ self.ff_data['Ex'][j,i],
+                            np.real( np.cross( np.conj( np.array( [ self.ff_data['Ex'][j,i],
                                                   self.ff_data['Ey'][j,i],
-                                                  self.ff_data['Ez'][j,i] ] ),
+                                                  self.ff_data['Ez'][j,i] ] )),
                                       np.array( [ self.ff_data['Hx'][j,i],
                                                   self.ff_data['Hy'][j,i],
                                                   self.ff_data['Hz'][j,i] ] ),
-                                    ) for j in range( len( self.ff_data['Ex'][:,i] ) ) ] ) )
+                                    ))[1] for j in range( len( self.ff_data['Ex'][:,0] ) ) ] ) )
 
         ff_frq = mp.get_near2far_freqs( self.n2f_obj )
         self.flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
@@ -310,9 +386,10 @@ class linear_gmot:
         ff_index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
         flux_index = np.where( np.array( self.flux_frq ) == 1/self.wvl )[0][0]
 
-        effic = np.abs( ff_flux[ ff_index ]/self.incidence_flux_data[ flux_index ] )
+        effic = np.abs( ff_flux[ ff_index ]/(self.incidence_flux_data[ flux_index ] ) )
+        coff = self.ff_points[1] - self.ff_points[0]
+        print( self.ff_points[1] - self.ff_points[0] )
+        print( effic )
 
-        return effic
-    
-    def load_passed_data( self, kwarg):
-        self.n2f_obj = self.sim.load_near2far( "".join( [ fname + "--near2far"] )
+        return effic*coff"""
+
