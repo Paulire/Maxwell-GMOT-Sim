@@ -3,6 +3,7 @@ from meep import materials as mat
 import numpy as np
 from matplotlib import pyplot as plt
 from sys import exit
+import json
 
 def __default_greating__( self, cen, size_x, size_z ):
     slit_len = self.period - self.grating_width
@@ -12,6 +13,24 @@ def __default_greating__( self, cen, size_x, size_z ):
                       material=self.grating_material ) ]
 
     return geo
+
+
+# The loading system is defined here in order to allow the user to use it indipendently 
+# of the simulation enviroment
+def load_data( self, fname=None, **kwarg ):
+    # Load data from file
+    input_file = open( fname )
+    input_data = json.load( input_file )
+    input_file.close()
+
+    # Convert arrays to the correct format (str->list)
+    input_data['Ez'] = eval( input_data['Ez'] )
+    input_data['Ey'] = eval( input_data['Ey'] )
+    input_data['Ex'] = eval( input_data['Ex'] )
+    input_data['angles'] = eval( input_data['angles'] )
+    input_data['points'] = eval( input_data['points'] )
+
+    return 0 
 
 class linear_gmot:
     def __init__( self,
@@ -296,23 +315,26 @@ class linear_gmot:
 
         return 0
     
-    def save_ff_data( self, fname=None, **kwarg ):
+    # Allows simulation data to be saved to a JSON file
+    def save_data( self, fname=None, **kwarg ):
+        # Check if the file name is a string
         if fname == None or type( fname ) != str:
             raise TypeError( "'fname' must be a string" )
-
-        import json
-
+        # Attempt to open, else error
         try:
             data_file = open( fname, "w" )
         except:
             print("Could not save file")
             return 1
 
+        # Load the far fied data
         output_data = self.ff_data
         output_data.update( { "angles": self.ff_angles,"points": self.ff_points } )
 
+        # Convert the far field arrays to strings to preserve complex numbers
         output_data = { k:str(n.tolist()) for k,n in output_data.items() }
 
+        # Add all the other data
         output_data.update( {
             "num_period": self.num_period,
             "period": self.period, 
@@ -320,13 +342,13 @@ class linear_gmot:
             "grating_height": self.grating_height,
             "wvl": self.wvl } )
 
+        # Dump the data to the json file
         json_data = json.dumps( output_data )
-        del( output_data )
-
         data_file.write( json_data )
-        del( json_data )
-
         data_file.close()
+
+        del( output_data )
+        del( json_data )
         del( data_file )
 
         return 0 
