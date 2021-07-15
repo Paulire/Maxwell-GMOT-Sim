@@ -17,9 +17,16 @@ def __default_greating__( self, cen, size_x, size_z ):
 
 # The loading system is defined here in order to allow the user to use it indipendently 
 # of the simulation enviroment
-def load_data( self, fname=None, **kwarg ):
+def load_data( fname=None, **kwarg ):
+    # Check if the file name is a string
+    if fname == None or type( fname ) != str:
+        raise TypeError( "'fname' must be a string" )
+
     # Load data from file
-    input_file = open( fname )
+    try:
+        input_file = open( fname )
+    except:
+        raise IOError( "Could not find the file " + fname )
     input_data = json.load( input_file )
     input_file.close()
 
@@ -30,46 +37,78 @@ def load_data( self, fname=None, **kwarg ):
     input_data['angles'] = eval( input_data['angles'] )
     input_data['points'] = eval( input_data['points'] )
 
-    return 0 
+    return input_data
 
 class linear_gmot:
     def __init__( self,
-                  num_period,
-                  period,
-                  grating_width,
-                  grating_height,
+                  num_period=None,
+                  period=None,
+                  grating_width=None,
+                  grating_height=None,
+                  fname=None,
                   **kwarg ):
 
-        # Set the verlibles which must be defined
-        self.num_period = int( num_period )              # Number of gratings
-        self.period = float( period )                      # Size of grating
-        self.grating_width = float( grating_width )        # Width of the deep part of the grating
-        self.grating_height = float( grating_height )      # The hight of the grating
+        # If a file is specified, the simulation will attempt to read it
+        if fname != None:
+            # Load the file and get the dict containing the sim data
+            sim_data = load_data( fname=fname )
 
-        # The simulation object will be here and can be accessed anywhere
-        self.sim = []
-        self.n2f_obj = None
-        self.ff_data = None
-        self.incidence_flux_obj = None
-        self.flux_frq = None
-        self.nfrq = 11
-        self.net_loss_flux_obj = None
-        self.net_loss_flux_data = None
-        self.ff_points = None 
-        self.ff_angles = None
+            # Set the basic data
+            self.num_period = int( sim_data["num_period"] )
+            self.period = float( sim_data["period"] )
+            self.grating_width = float( sim_data["grating_width"] )
+            self.grating_height = float( sim_data["grating_height"] )
+            self.wvl = float( sim_data["wvl"] )
+            self.nfrq = int( sim_data["nfrq"] )
+            self.dwvl = float( sim_data["dwvl"] )
+            self.res = int( sim_data["res"] )
+            self.run_2D = bool( sim_data["run_2D"] )
 
-        # Set the optional verlibles
-        # The grating matirial
-        try:
-            self.grating_material = kwarg["grating_material"]
-        except:
-            self.grating_material = mat.Al
+            # Far field data
+            self.ff_points = sim_data['points']
+            self.ff_angles = sim_data['angles']
+            self.ff_data = { key:np.array(sim_data[key]) for key in ['Ex','Ey','Ez'] }
 
-        # Simulation resolution
-        try:
-            self.res = int( kwarg["res"] )
-        except:
-            self.res = 50
+        # If no file is specifed, then the code shall use the input arguments
+        else:
+            # Set the verlibles which must be defined
+            self.num_period = int( num_period )              # Number of gratings
+            self.period = float( period )                      # Size of grating
+            self.grating_width = float( grating_width )        # Width of the deep part of the grating
+            self.grating_height = float( grating_height )      # The hight of the grating
+
+            # The simulation object will be here and can be accessed anywhere
+            self.nfrq = 11
+            self.ff_points = None 
+            self.ff_angles = None
+
+            # Simulation resolution
+            try:
+                self.res = int( kwarg["res"] )
+            except:
+                self.res = 50
+
+            # Should this be a 2D simulation
+            try:
+                self.run_2D = kwarg["run_2D"]
+            except:
+                self.run_2D = False
+
+            # Wavelength selection (default 780nm)
+            try:
+                self.wvl = kwarg["wvl"] 
+                if type( self.wvl ) == int:
+                    self.wvl = float( self.wvl )
+            except:
+                self.wvl = 0.780
+
+            # Wavelength range selection (default 10nm)
+            try:
+                self.dwvl = kwarg["dwvl"] 
+                if type( self.dwvl ) == int:
+                    self.dwvl = float( self.dwvl )
+            except:
+                self.dwvl = 0.01
 
         # Simulation greating builder
         try:
@@ -77,33 +116,12 @@ class linear_gmot:
         except:
             self.greating_func = __default_greating__
 
-        # Should this be a 2D simulation
+        # Set the optional verlibles
+        # The grating matirial
         try:
-            self.run_2D = kwarg["run_2D"]
+            self.grating_material = kwarg["grating_material"]
         except:
-            self.run_2D = False
-
-        # Wavelength selection (default 780nm)
-        try:
-            self.wvl = kwarg["wvl"] 
-            if type( self.wvl ) == int:
-                self.wvl = float( self.wvl )
-        except:
-            self.wvl = 0.780
-
-        # Wavelength range selection (default 10nm)
-        try:
-            self.dwvl = kwarg["dwvl"] 
-            if type( self.dwvl ) == int:
-                self.dwvl = float( self.dwvl )
-        except:
-            self.dwvl = 0.01
-
-        # The output file can have an identifiy ID atached to it
-        try: 
-            self.file_ID = kwarg["file_ID"]
-        except:
-            self.file_ID = ""
+            self.grating_material = mat.Al
 
         # Simulation Polarization
         try:
@@ -120,19 +138,25 @@ class linear_gmot:
         except:
             self.polarization = mp.Ez
 
-        if self.polarization == None:
-            raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
+
+        self.sim = []
+        self.n2f_obj = None
+        self.ff_data = None
+        self.incidence_flux_obj = None
+        self.flux_frq = None
+        self.net_loss_flux_obj = None
+        self.net_loss_flux_data = None
 
         # Check if input data is correct
-        if grating_width >= period:
+        if self.grating_width >= self.period:
             raise ValueError("'grating_width' cannot be equal to or grater than 'period'")
-        elif grating_width <= 0:
+        elif self.grating_width <= 0:
             raise ValueError("'grating_width' must be a positive nonzero value")
-        elif period <= 0: 
+        elif self.period <= 0: 
             raise ValueError("'period' must be a positive nonzero value")
-        elif num_period <= 0:
+        elif self.num_period <= 0:
             raise ValueError("'num_period' must be a positive nonzero value")
-        elif grating_height <= 0:
+        elif self.grating_height <= 0:
             raise ValueError("'grating_height' must be a positive nonzero value")
         elif type( self.grating_material ) != mp.geom.Medium:
             raise TypeError("'grating_material' must be of type 'meep.geom.Medium'")
@@ -144,8 +168,8 @@ class linear_gmot:
             raise TypeError("'wvl' must be a float")
         elif type( self.dwvl ) != float:
             raise TypeError("'dwvl' must be a float")
-        elif type( self.file_ID ) != str:
-            raise TypeError("'file' must be a string")
+        if self.polarization == None:
+            raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
 
     def run( self, **kwarg ):
         frq = 1/self.wvl
@@ -340,7 +364,11 @@ class linear_gmot:
             "period": self.period, 
             "grating_width": self.grating_width,
             "grating_height": self.grating_height,
-            "wvl": self.wvl } )
+            "wvl": self.wvl,
+            "nfrq": self.nfrq,
+            "dwvl": self.dwvl,
+            "res": self.res,
+            "run_2D": int( self.run_2D ) } )
 
         # Dump the data to the json file
         json_data = json.dumps( output_data )
