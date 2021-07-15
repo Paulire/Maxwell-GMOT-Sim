@@ -242,6 +242,32 @@ class linear_gmot:
             self.__animate_func__( sx, sy )
             return 0
 
+        # Check if the user wants to build the enviroment for n2f analysis form an od life
+        try:
+            if kwarg["n2f_file"]:
+                n2f_only = True
+        except:
+            n2f_only = False
+
+        if n2f_only == True:
+            if type( kwarg["n2f_file"] ) != str:
+                raise TypeError( "'n2f_file must be a sting" )
+            
+            self.sim = mp.Simulation( cell_size=cell,
+                                      resolution=self.res,
+                                      geometry=geometry,
+                                      sources=source,
+                                      boundary_layers=pml_layer,
+                                      symmetries=symmetries )
+
+            n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
+            n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
+            self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
+            self.sim.load_near2far( kwarg["n2f_file"], self.n2f_obj )
+            
+            return 0
+
+
         # If no animation is requested, the a normal run will comence
         # The simulation must be run twice, once with no geomitry - in order to remove the incoming 
         # field data from the n2f monitor
@@ -279,7 +305,6 @@ class linear_gmot:
                                   sources=source,
                                   boundary_layers=pml_layer,
                                   symmetries=symmetries )
-        
 
         # Add the near2far monitor then set to remove the incoming data
         self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
@@ -346,7 +371,7 @@ class linear_gmot:
             raise TypeError( "'fname' must be a string" )
         # Attempt to open, else error
         try:
-            data_file = open( fname, "w" )
+            data_file = open( fname + str('.json'), "w" )
         except:
             print("Could not save file")
             return 1
@@ -380,6 +405,10 @@ class linear_gmot:
         del( data_file )
 
         return 0 
+
+    def save_n2f_obj( self, fname, **kwarg ):
+        self.sim.save_near2far( fname, self.n2f_obj )
+        return 0
 
     # Plots the far field
     def plot_far_field( self, x_axis="angle", fname=None, dpi=300, **kwarg ):
@@ -415,31 +444,4 @@ class linear_gmot:
 
         # fix, (a-b)/a not b/a
         return abs( self.net_loss_flux_data[ index ]/self.incidence_flux_data[ index ] )
-
-    """def n2f_efficacy( self, **kwarg ):
-        # Compute the far field Poynting flux
-        ff_flux = []
-
-        for i in range( self.nfrq ):
-            ff_flux.append( np.sum( [ 
-                            np.real( np.cross( np.conj( np.array( [ self.ff_data['Ex'][j,i],
-                                                  self.ff_data['Ey'][j,i],
-                                                  self.ff_data['Ez'][j,i] ] )),
-                                      np.array( [ self.ff_data['Hx'][j,i],
-                                                  self.ff_data['Hy'][j,i],
-                                                  self.ff_data['Hz'][j,i] ] ),
-                                    ))[1] for j in range( len( self.ff_data['Ex'][:,0] ) ) ] ) )
-
-        ff_frq = mp.get_near2far_freqs( self.n2f_obj )
-        self.flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
-
-        ff_index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
-        flux_index = np.where( np.array( self.flux_frq ) == 1/self.wvl )[0][0]
-
-        effic = np.abs( ff_flux[ ff_index ]/(self.incidence_flux_data[ flux_index ] ) )
-        coff = self.ff_points[1] - self.ff_points[0]
-        print( self.ff_points[1] - self.ff_points[0] )
-        print( effic )
-
-        return effic*coff"""
 
