@@ -34,6 +34,9 @@ def load_data( fname=None, **kwarg ):
     input_data['Ez'] = eval( input_data['Ez'] )
     input_data['Ey'] = eval( input_data['Ey'] )
     input_data['Ex'] = eval( input_data['Ex'] )
+    input_data['Hz'] = eval( input_data['Hz'] )
+    input_data['Hy'] = eval( input_data['Hy'] )
+    input_data['Hx'] = eval( input_data['Hx'] )
     input_data['angles'] = eval( input_data['angles'] )
     input_data['points'] = eval( input_data['points'] )
 
@@ -64,10 +67,10 @@ class linear_gmot:
             self.res = int( sim_data["res"] )
             self.run_2D = bool( sim_data["run_2D"] )
 
-            # Far field data
+            # Get far field data from loaded file
             self.ff_points = sim_data['points']
             self.ff_angles = sim_data['angles']
-            self.ff_data = { key:np.array(sim_data[key]) for key in ['Ex','Ey','Ez'] }
+            self.ff_data = { key:np.array(sim_data[key]) for key in ['Ex','Ey','Ez','Hx','Hy','Hz'] }
 
         # If no file is specifed, then the code shall use the input arguments
         else:
@@ -79,6 +82,7 @@ class linear_gmot:
 
             # The simulation object will be here and can be accessed anywhere
             self.nfrq = 11
+            self.ff_data = None
             self.ff_points = None 
             self.ff_angles = None
 
@@ -141,7 +145,6 @@ class linear_gmot:
 
         self.sim = []
         self.n2f_obj = None
-        self.ff_data = None
         self.incidence_flux_obj = None
         self.flux_frq = None
         self.net_loss_flux_obj = None
@@ -360,7 +363,6 @@ class linear_gmot:
         self.ff_points = np.linspace( -0.5*ff_size, 0.5*ff_size, ff_pnt )
         # fix line bellow
         self.ff_angles = np.arctan( self.ff_points/ff_dist )
-        print(ff_size)
 
         return 0
     
@@ -423,10 +425,12 @@ class linear_gmot:
                                   np.array( [ self.ff_data['Hx'][i,index],
                                               self.ff_data['Hy'][i,index],
                                               self.ff_data['Hz'][i,index] ] ),
-                                ) for i in range( len( self.ff_data['Ex'][:,0] ) ) ] 
+                                ) for i in range( len( self.ff_data['Ez'][:,0] ) ) ] 
 
         fig, axs = plt.subplots()
-        axs.plot( self.far_field_angles, np.abs( self.ff_data )**2, '-k' )
+        #axs.plot( self.ff_angles, np.abs( ff_p_vector )**2, '-k' )
+        #axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,0] )**2, '-k' )
+        axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
         axs.tick_params( direction="in" )
         axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
@@ -434,7 +438,8 @@ class linear_gmot:
 
         # Save the file unless show plot if it is named, else just show
         plt.tight_layout()
-        plt.savefig( fname, dpi=dpi ) if fname == None else plt.show()
+        plt.savefig( fname, dpi=dpi )
+        plt.show()
 
     # Determines the efficny of the GMOT in regards to it's flux (power)
     def gmot_efficacy( self, **kwarg ):
