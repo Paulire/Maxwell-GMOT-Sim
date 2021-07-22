@@ -431,7 +431,7 @@ class linear_gmot:
         print("#########")
 
 
-    def plot_wavelength_pattern( self,fname, dpi=300, **kwarg ):
+    def plot_wavelength_pattern( self,fname=None, trace_braggs=False, dpi=300, **kwarg ):
         # Get the frequncies
         ff_frq = mp.get_flux_freqs( self.n2f_obj )
 
@@ -446,6 +446,9 @@ class linear_gmot:
         # Plot the field relitve to angles and wavelngths
         fig, axs = plt.subplots(  )
         axs.pcolormesh( ff_wvl, self.ff_angles, field, cmap='Blues',shading='flat' )
+        if trace_braggs == True:
+            x =np.linspace( ff_wvl[0], ff_wvl[-1], 1000 )
+            [ plt.plot( x, np.arcsin( i*x/self.period ), '-r' ) for i in [-1,0,1] ]
         axs.tick_params( direction="in" )
         axs.set_ylabel( "Wavelength ($\mu m$)", size="x-large")
         axs.set_xlabel( "Angle (rad)", size="x-large") 
