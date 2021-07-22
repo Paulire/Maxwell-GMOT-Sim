@@ -429,6 +429,31 @@ class linear_gmot:
             self.diff_efficacy.append( temp_eff[index] )
 
         print("#########")
+
+
+    def plot_wavelength_pattern( self,fname, dpi=300, **kwarg ):
+        # Get the frequncies
+        ff_frq = mp.get_flux_freqs( self.n2f_obj )
+
+        # Convert to wavelengths
+        ff_wvl = np.divide( 1, ff_frq )
+
+        # Get the field values and normilse
+        field = np.abs( self.ff_data['Ez'] )**2
+        for i in range( len( ff_wvl ) ):
+            field[:,i] = field[:,i]/np.max(field[:,i])
+
+        # Plot the field relitve to angles and wavelngths
+        fig, axs = plt.subplots(  )
+        axs.pcolormesh( ff_wvl, self.ff_angles, field, cmap='Blues',shading='flat' )
+        axs.tick_params( direction="in" )
+        axs.set_ylabel( "Wavelength ($\mu m$)", size="x-large")
+        axs.set_xlabel( "Angle (rad)", size="x-large") 
+        if fname == None:
+            plt.show()
+        else:
+            plt.savefig( fname, dpi=dpi )
+
     
     # Allows simulation data to be saved to a JSON file
     def save_data( self, fname=None, **kwarg ):
