@@ -68,9 +68,11 @@ class linear_gmot:
             self.run_2D = bool( sim_data["run_2D"] )
 
             # Get far field data from loaded file
-            self.ff_points = sim_data['points']
-            self.ff_angles = sim_data['angles']
+            self.ff_points = np.array( sim_data['points'] )
+            self.ff_angles = np.array( sim_data['angles'] )
             self.ff_data = { key:np.array(sim_data[key]) for key in ['Ex','Ey','Ez','Hx','Hy','Hz'] }
+
+            self.diff_efficacy = sim_data["diff_efficacy"]
 
         # If no file is specifed, then the code shall use the input arguments
         else:
@@ -85,6 +87,7 @@ class linear_gmot:
             self.ff_data = None
             self.ff_points = None 
             self.ff_angles = None
+            self.diff_efficacy = None
 
             # Simulation resolution
             try:
@@ -365,6 +368,67 @@ class linear_gmot:
         self.ff_angles = np.arctan( self.ff_points/ff_dist )
 
         return 0
+
+    def diffraction_efficacy( self, order=1, **kwarg ):
+        # Validate input values
+        if type( order ) != int:
+            return TypeError( "'order' must be an int" )
+        elif order < 0:
+            return ValueError("'order must be greater than or equle to zero'")
+
+
+        self.diff_efficacy = []
+
+        # Calulates each maximas angle
+        diffraction_angles_mean = [ np.arcsin( i*self.wvl/self.period ) for i in range( order+1 ) ]
+        position_mean = 5e3*np.tan( diffraction_angles_mean )
+
+        ff_frq = mp.get_flux_freqs( self.n2f_obj )
+        index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
+        field_magnitude = np.abs( self.ff_data['Ez'][:,index] )**2
+
+        for i in range( order +1):
+            mean_index = int( ( position_mean[i] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) ) 
+
+            current_index = mean_index
+            peak_value = field_magnitude[ mean_index ] 
+            current_value = peak_value
+            j = 0
+
+            plt.plot( field_magnitude[ mean_index: ] )
+            plt.show()
+
+            #while np.abs(current_value/peak_value) > 0.01:
+            while field_magnitude[current_index+1] <= field_magnitude[current_index]:
+                current_index += 1
+                j += 1
+                current_value = field_magnitude[ current_index ]
+
+            maxima_width = 2*( self.ff_points[ current_index ] - self.ff_points[ mean_index ] ) 
+            
+            temp_eff = None
+            
+            print( "-------" )
+            print( self.ff_points[ current_index ] )
+            print( self.ff_points[ mean_index ] )
+            print("#########")
+            print( "angle " + str(self.ff_angles[mean_index] ))
+            print( "cen " + str( self.ff_points[mean_index] ) )
+            print( "width " + str(maxima_width ))
+            print("#########")
+
+            temp_eff = self.n2f_obj.flux( mp.Y,
+                               where=mp.Volume( mp.Vector3( self.ff_points[ mean_index ],5e3 ), mp.Vector3( maxima_width ) ),
+                               resolution=10 ) 
+            self.diff_efficacy.append( temp_eff[index] )
+            if order != 0:
+                temp_eff = self.n2f_obj.flux( mp.Y,
+                                   where=mp.Volume( mp.Vector3( -self.ff_points[ mean_index ],5e3 ), mp.Vector3( maxima_width ) ),
+                                   resolution=10 ) 
+            
+            self.diff_efficacy.append( temp_eff[index] )
+
+        print("#########")
     
     # Allows simulation data to be saved to a JSON file
     def save_data( self, fname=None, **kwarg ):
@@ -395,7 +459,8 @@ class linear_gmot:
             "nfrq": self.nfrq,
             "dwvl": self.dwvl,
             "res": self.res,
-            "run_2D": int( self.run_2D ) } )
+            "run_2D": int( self.run_2D ),
+            "diff_efficacy": self.diff_efficacy} )
 
         # Dump the data to the json file
         json_data = json.dumps( output_data )
@@ -430,7 +495,8 @@ class linear_gmot:
         fig, axs = plt.subplots()
         #axs.plot( self.ff_angles, np.abs( ff_p_vector )**2, '-k' )
         #axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,0] )**2, '-k' )
-        axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
+        #axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
+        axs.plot( self.ff_points, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
         axs.tick_params( direction="in" )
         axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
