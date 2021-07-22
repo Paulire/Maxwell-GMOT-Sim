@@ -62,7 +62,7 @@ class linear_gmot:
             self.grating_width = float( sim_data["grating_width"] )
             self.grating_height = float( sim_data["grating_height"] )
             self.wvl = float( sim_data["wvl"] )
-            self.nfrq = int( sim_data["nfrq"] )
+            self.nwvl = int( sim_data["nwvl"] )
             self.dwvl = float( sim_data["dwvl"] )
             self.res = int( sim_data["res"] )
             self.run_2D = bool( sim_data["run_2D"] )
@@ -83,7 +83,6 @@ class linear_gmot:
             self.grating_height = float( grating_height )      # The hight of the grating
 
             # The simulation object will be here and can be accessed anywhere
-            self.nfrq = 11
             self.ff_data = None
             self.ff_points = None 
             self.ff_angles = None
@@ -116,6 +115,14 @@ class linear_gmot:
                     self.dwvl = float( self.dwvl )
             except:
                 self.dwvl = 0.01
+
+            # The number of wavelenths to be sampled
+            try:
+                self.nwvl = kwarg["nwvl"]
+                if type( self.nwvl ) == float:
+                    self.nwvl = int( self.nwvl )
+            except:
+                self.nwvl = 11
 
         # Simulation greating builder
         try:
@@ -174,13 +181,20 @@ class linear_gmot:
             raise TypeError("'wvl' must be a float")
         elif type( self.dwvl ) != float:
             raise TypeError("'dwvl' must be a float")
-        if self.polarization == None:
+        elif type( self.nwvl  ) != int:
+            raise TypeError("'nwvl' must be an int")
+        elif self.polarization == None:
             raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
 
     def run( self, **kwarg ):
         frq = 1/self.wvl
-        dfrq = 1/( self.wvl - 0.5*self.dwvl ) - 1/( self.wvl + 0.5*self.dwvl )
-        dfrq = 0.5
+        wvl_max = self.wvl + 0.5*self.dwvl
+        wvl_min = self.wvl - 0.5*self.dwvl
+        frq_max = 1/wvl_min
+        frq_min = 1/wvl_max
+        dfrq = frq_max - frq_min
+
+        print( dfrq )
 
         ## Build cell ###
         # chip size - the size of the chip in the x/y direction
@@ -268,7 +282,7 @@ class linear_gmot:
 
             n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
             n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
-            self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
+            self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
             self.sim.load_near2far( kwarg["n2f_file"], self.n2f_obj )
             
             return 0
@@ -287,11 +301,11 @@ class linear_gmot:
         # This is the n2f for no geomitry
         n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
         n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
-        n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
+        n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
 
         # This is the incoming flux, it is idenical in shape to the n2f 
         incidence_flux_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
-        self.incidence_flux_obj = self.sim.add_flux( frq, dfrq, self.nfrq, incidence_flux_region )
+        self.incidence_flux_obj = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
 
         # First run
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
@@ -313,11 +327,11 @@ class linear_gmot:
                                   symmetries=symmetries )
 
         # Add the near2far monitor then set to remove the incoming data
-        self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nfrq, n2f_region )
+        self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
         self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
         # Add flux monitor which is the net loss
-        self.net_loss_flux_obj = self.sim.add_flux( frq, dfrq, self.nfrq, incidence_flux_region )
+        self.net_loss_flux_obj = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
 
         # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
@@ -431,6 +445,7 @@ class linear_gmot:
         print("#########")
 
 
+    # Plots a colour map of |E|^2 with wavelength on the x-axis and angle on the y-axis
     def plot_wavelength_pattern( self,fname=None, trace_braggs=False, dpi=300, **kwarg ):
         # Get the frequncies
         ff_frq = mp.get_flux_freqs( self.n2f_obj )
@@ -446,12 +461,16 @@ class linear_gmot:
         # Plot the field relitve to angles and wavelngths
         fig, axs = plt.subplots(  )
         axs.pcolormesh( ff_wvl, self.ff_angles, field, cmap='Blues',shading='flat' )
+
         if trace_braggs == True:
             x =np.linspace( ff_wvl[0], ff_wvl[-1], 1000 )
             [ plt.plot( x, np.arcsin( i*x/self.period ), '-r' ) for i in [-1,0,1] ]
+
         axs.tick_params( direction="in" )
-        axs.set_ylabel( "Wavelength ($\mu m$)", size="x-large")
-        axs.set_xlabel( "Angle (rad)", size="x-large") 
+        axs.set_xlabel( "Wavelength ($\mu m$)", size="x-large")
+        axs.set_ylabel( "Angle (rad)", size="x-large") 
+        axs.set_ylim( self.ff_angles[0], self.ff_angles[-1] )
+
         if fname == None:
             plt.show()
         else:
@@ -460,6 +479,7 @@ class linear_gmot:
     
     # Allows simulation data to be saved to a JSON file
     def save_data( self, fname=None, **kwarg ):
+        print(1)
         # Check if the file name is a string
         if fname == None or type( fname ) != str:
             raise TypeError( "'fname' must be a string" )
@@ -469,13 +489,16 @@ class linear_gmot:
         except:
             print("Could not save file")
             return 1
+        print(2)
 
         # Load the far fied data
         output_data = self.ff_data
         output_data.update( { "angles": self.ff_angles,"points": self.ff_points } )
+        print(3)
 
         # Convert the far field arrays to strings to preserve complex numbers
         output_data = { k:str(n.tolist()) for k,n in output_data.items() }
+        print(4)
 
         # Add all the other data
         output_data.update( {
@@ -484,12 +507,13 @@ class linear_gmot:
             "grating_width": self.grating_width,
             "grating_height": self.grating_height,
             "wvl": self.wvl,
-            "nfrq": self.nfrq,
+            "nwvl": self.nwvl,
             "dwvl": self.dwvl,
             "res": self.res,
             "run_2D": int( self.run_2D ),
             "diff_efficacy": self.diff_efficacy} )
 
+        print(5)
         # Dump the data to the json file
         json_data = json.dumps( output_data )
         data_file.write( json_data )
