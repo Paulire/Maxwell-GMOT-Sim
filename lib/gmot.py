@@ -73,9 +73,9 @@ class linear_gmot:
             self.ff_angles = np.array( sim_data['angles'] )
             self.ff_data = { key:np.array(sim_data[key]) for key in ['Ex','Ey','Ez','Hx','Hy','Hz'] }
 
-            self.diff_efficacy = sim_data["diff_efficacy"]
+            self.diff_efficacy = np.array( sim_data["diff_efficacy"] )
 
-            self.incidence_flux_data = sim_data["incidence_flux_data"]
+            self.incidence_flux_data = np.array( sim_data["incidence_flux_data"] )
 
         # If no file is specifed, then the code shall use the input arguments
         else:
@@ -318,7 +318,7 @@ class linear_gmot:
         n2f_data_no_chip = self.sim.get_near2far_data( n2f_obj_no_chip )
 
         # Get the near field flux and save if specified
-        self.incidence_flux_data = mp.get_fluxes( self.incidence_flux_obj )
+        self.incidence_flux_data = np.array( mp.get_fluxes( self.incidence_flux_obj ) )
         
         self.sim.reset_meep()
 
@@ -460,58 +460,44 @@ class linear_gmot:
         print( side_centre )
         print("######")
 
-        #self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data
+        self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data
         print("Done")
 
-        """print("Done")
-        input()
+    def plot_diffraction_efficacy( self, fname=None, dpi=300, **kwarg ):
 
-        for i in range( order +1):
-            mean_index = int( ( position_mean[i] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) ) 
+        # Get the frequncies
+        ff_frq = mp.get_flux_freqs( self.n2f_obj )
 
-            current_index = mean_index
-            peak_value = field_magnitude[ mean_index ] 
-            current_value = peak_value
-            j = 0
+        # Convert to wavelengths
+        ff_wvl = 1e3*np.divide( 1, ff_frq )
 
-            plt.plot( field_magnitude[ mean_index: ] )
+        # Pre set style for plot
+        line_style = [ '-r','-b','-g','-k' ]
+        leg = [ '$\eta_0$', '$\eta_1$', '$\eta_{-1}$', '$3\eta_1/(1-\eta_0)$' ]
+
+        # Need to be renamebed, this is the analytical relation for the efficancies
+        combine = 3*self.diff_efficacy[1,:]/( 1 - self.diff_efficacy[0,:] )
+
+        # Plot each of the efficancies
+        [ plt.plot( ff_wvl, np.abs( self.diff_efficacy[i,:]), line_style[i], label=leg[i] ) for i in range( len( self.diff_efficacy[:,0] ) ) ]
+        plt.plot( ff_wvl, np.abs( combine ), line_style[-1], label=leg[-1] )
+        plt.legend()
+        plt.xlabel("Wavelength (nm)", size="x-large")
+        plt.xticks(fontsize='large')
+        plt.ylabel("Efficiencies", size="x-large")
+        plt.yticks(fontsize='large')
+        plt.tick_params( direction='in' )
+        plt.xlim( ff_wvl[-1], ff_wvl[0] )
+
+        if fname == None:
             plt.show()
+        else:
+            plt.savefig( fname, dpi=dpi )
 
-            #while np.abs(current_value/peak_value) > 0.01:
-            while field_magnitude[current_index+1] <= field_magnitude[current_index]:
-                current_index += 1
-                j += 1
-                current_value = field_magnitude[ current_index ]
-
-            maxima_width = 2*( self.ff_points[ current_index ] - self.ff_points[ mean_index ] ) 
-            
-            temp_eff = None
-            
-            print( "-------" )
-            print( self.ff_points[ current_index ] )
-            print( self.ff_points[ mean_index ] )
-            print("#########")
-            print( "angle " + str(self.ff_angles[mean_index] ))
-            print( "cen " + str( self.ff_points[mean_index] ) )
-            print( "width " + str(maxima_width ))
-            print("#########")
-
-            temp_eff = self.n2f_obj.flux( mp.Y,
-                               where=mp.Volume( mp.Vector3( self.ff_points[ mean_index ],5e3 ), mp.Vector3( maxima_width ) ),
-                               resolution=10 ) 
-            self.diff_efficacy.append( temp_eff[index] )
-            if order != 0:
-                temp_eff = self.n2f_obj.flux( mp.Y,
-                                   where=mp.Volume( mp.Vector3( -self.ff_points[ mean_index ],5e3 ), mp.Vector3( maxima_width ) ),
-                                   resolution=10 ) 
-            
-            self.diff_efficacy.append( temp_eff[index] )
-
-        print("#########")"""
-
+        return 0
 
     # Plots a colour map of |E|^2 with wavelength on the x-axis and angle on the y-axis
-    def plot_wavelength_pattern( self,fname=None, trace_braggs=False, dpi=300, **kwarg ):
+    def plot_wavelength_pattern( self,fname=None, trace_braggs=False, dpi=150, **kwarg ):
         # Get the frequncies
         ff_frq = mp.get_flux_freqs( self.n2f_obj )
 
@@ -529,7 +515,7 @@ class linear_gmot:
 
         if trace_braggs == True:
             x =np.linspace( ff_wvl[0], ff_wvl[-1], 1000 )
-            [ plt.plot( x, np.arcsin( i*x/self.period ), '-r' ) for i in [-1,0,1] ]
+            [ axs.plot( x, np.arcsin( i*x/self.period ), '-r' ) for i in [-1,0,1] ]
 
         axs.tick_params( direction="in" )
         axs.set_xlabel( "Wavelength ($\mu m$)", size="x-large")
@@ -573,7 +559,7 @@ class linear_gmot:
             "res": self.res,
             "run_2D": int( self.run_2D ),
             "diff_efficacy": self.diff_efficacy.tolist(),
-            "incidence_flux_data": self.incidence_flux_data } )
+            "incidence_flux_data": self.incidence_flux_data.tolist() } )
 
         # Dump the data to the json file
         json_data = json.dumps( output_data )
