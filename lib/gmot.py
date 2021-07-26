@@ -39,7 +39,6 @@ def load_data( fname=None, **kwarg ):
     input_data['Hx'] = eval( input_data['Hx'] )
     input_data['angles'] = eval( input_data['angles'] )
     input_data['points'] = eval( input_data['points'] )
-    #input_data['incidence_flux_data'] =  input_data['incidence_flux_data'] 
 
     return input_data
 
@@ -77,6 +76,10 @@ class linear_gmot:
 
             self.incidence_flux_data = np.array( sim_data["incidence_flux_data"] )
 
+            self.ff_dist = sim_data["ff_dist"]
+
+            self.frq_values = np.array( sim_data["frq_values"] )
+
         # If no file is specifed, then the code shall use the input arguments
         else:
             # Set the verlibles which must be defined
@@ -91,6 +94,7 @@ class linear_gmot:
             self.ff_angles = None
             self.diff_efficacy = None
             self.incidence_flux_data = None
+            self.ff_dist = None
 
             # Simulation resolution
             try:
@@ -342,6 +346,7 @@ class linear_gmot:
 
         # Get the net flux data
         self.net_loss_flux_data = mp.get_fluxes( self.net_loss_flux_obj )
+        self.frq_values = np.array( mp.get_flux_freqs( self.net_loss_flux_obj ) )
 
         return 0
 
@@ -369,6 +374,8 @@ class linear_gmot:
     def get_far_field( self, ff_dist=5e3, ff_pnt=500, theta=np.pi/4, **kwarg ):
         if self.n2f_obj == None:
             raise RuntimeError( "Can't generate far fields without near field data first. Use 'run' first." )
+
+        self.ff_dist = ff_dist
         
         # Get the size of the far field and calculate is's resolution in pixles per micron
         ff_size = 2*abs(ff_dist)*np.tan( theta )
@@ -387,7 +394,7 @@ class linear_gmot:
 
         return 0
 
-    def diffraction_efficacy( self, order=1, **kwarg ):
+    def get_diffraction_efficacy( self, order=1, **kwarg ):
         # Validate input values
         if type( order ) != int:
             return TypeError( "'order' must be an int" )
@@ -395,73 +402,56 @@ class linear_gmot:
             return ValueError("'order must be greater than or equle to zero'")
 
 
-        self.diff_efficacy = []
-
-        # Calulates each maximas angle
-        diffraction_angles_mean = [ np.arcsin( i*self.wvl/self.period ) for i in range( order+1 ) ]
-        position_mean = 1e3*np.tan( diffraction_angles_mean )
-
         # Retreaves the frequncy values for the far fields
         ff_frq = mp.get_flux_freqs( self.n2f_obj )
         index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
 
-        # The maginitude of the far field in E is used to determine the size of the diffraction order at the 
-        # given far field resolution
-        field_magnitude = np.abs( self.ff_data['Ez'][:,index] )**2
+        # Diffraction efficacies are held hear for each frequncy
+        # 0 = order zero, 1 = order one, 2 = order minus one
+        self.diff_efficacy = np.zeros( ( 3, len( np.array( ff_frq  ) ) ) )
 
-        # The width of the zeroth order is recorded first
-        mean_index = mean_index = int( ( position_mean[0] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) )
+        # Set up loop counters
+        count_frq = 1
 
-        # This loop will find the minimum field to the right of the first order diffraction
-        # It records the index of the field at that point
-        current_index = mean_index
-        while field_magnitude[current_index]/field_magnitude[mean_index] > 0.01:
-            current_index +=1
+        # Find the efficancy for each wavelength
+        for i in range( len( np.array( ff_frq  ) ) ):
+            print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( ff_frq  ) +1 ) + " (" + str( int( 100*count_frq/( len( np.array( ff_frq  ) + 1 ) )  )) + "% done)" ) )
+            count_frq += 1
 
-        # Determine the width of the maxima
-        maxima_width = 2*self.ff_points[ current_index ]
-        print("start")
+            # Calulates each maximas angle
+            diffraction_angles_mean = [ np.arcsin( j*self.wvl/self.period ) for j in range( -order, order+1 ) ]
+            position_mean = self.ff_dist*np.tan( diffraction_angles_mean )
 
-        # Finds the diffraction efficany of the zeroth order
-        self.diff_efficacy = np.array(
-                                       [ self.n2f_obj.flux( mp.Y,
-                                         where=mp.Volume( mp.Vector3( self.ff_points[ mean_index ],1e3 ), mp.Vector3( maxima_width ) ),
-                                         resolution=int( 500/maxima_width ) )
-                ] )
+            # Find the efficancy for each maxima at this wavelength
+            for j in range( len( diffraction_angles_mean ) ):
+                # The maginitude of the far field in E is used to determine the size of the diffraction order at the 
+                field_magnitude = np.abs( self.ff_data['Ez'][:,j] )**2
 
-        print("######")
-        print( maxima_width )
-        print( self.ff_points[ mean_index ] )
+                # Find the position of this cenre
+                mean_index = int( ( position_mean[j] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) )
 
-        # Find the space left to either side of the first order minimum
-        side_centre = 0.5*( self.ff_points[ current_index ] + self.ff_points[-1] )
-        side_size = self.ff_points[-1] - self.ff_points[ current_index ]
-        self.diff_efficacy = np.vstack( ( self.diff_efficacy, 
-                                       [ self.n2f_obj.flux( mp.Y,
-                                         where=mp.Volume( mp.Vector3( side_centre, 1e3 ), mp.Vector3(side_size )),
-                                         resolution=int( 500/maxima_width )  ) ]
-                                      ) )
+                # This loop will find the minimum field to the right of the first order diffraction
+                # It records the index of the field at that point
+                current_index_left = mean_index
+                while field_magnitude[current_index]/field_magnitude[mean_index] > 0.01:
+                    current_index_left +=1
+                current_index_right = mean_index
+                while field_magnitude[current_index]/field_magnitude[mean_index] > 0.01:
+                    current_index_right +=1
+                
+                # Determine the width of the maxima and it's mean position
+                maxima_width = self.ff_points[ current_index_right ] - self.ff_points[ current_index_left ]
+                maxima_mean = (self.ff_points[ current_index_right ] + self.ff_points[ current_index_left ])/2
 
-        print("######")
-        print( side_size )
-        print( side_centre )
-
-        # Find the space left to either side of the first order minimum
-        side_centre = 0.5*( self.ff_points[mean_index] - self.ff_points[ current_index ] + self.ff_points[0] )
-        side_size = self.ff_points[mean_index] - self.ff_points[ current_index ] - self.ff_points[-1]
-        self.diff_efficacy = np.vstack( ( self.diff_efficacy,
-                                       [ self.n2f_obj.flux( mp.Y,
-                                         where=mp.Volume( mp.Vector3( side_centre, 1e3 ), mp.Vector3(side_size )),
-                                         resolution=int( 500/maxima_width )  ) ]
-                                      ) )
-
-        print("######")
-        print( side_size )
-        print( side_centre )
-        print("######")
+                # Finally calculate the flux (power) in the just defined region
+                self.diff_efficacy[j,i] = self.n2f_obj.flux( mp.Y,
+                                                        where=mp.Volume( center=mp.Vector3( maxima_mean, self.ff_dist ),
+                                                                         size=mp.Vector3( maxima_width )),
+                                                        resolution = 1 )
 
         self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data
-        print("Done")
+
+        return 0
 
     def plot_diffraction_efficacy( self, fname=None, dpi=300, **kwarg ):
 
@@ -559,7 +549,9 @@ class linear_gmot:
             "res": self.res,
             "run_2D": int( self.run_2D ),
             "diff_efficacy": self.diff_efficacy.tolist(),
-            "incidence_flux_data": self.incidence_flux_data.tolist() } )
+            "incidence_flux_data": self.incidence_flux_data.tolist(),
+            "ff_dist": self.ff_dist,
+            "frq_values": self.frq_values.tolist() } )
 
         # Dump the data to the json file
         json_data = json.dumps( output_data )
@@ -612,5 +604,5 @@ class linear_gmot:
         index = np.where( np.array( flux_frq ) == 1/self.wvl )[0][0]
 
         # fix, (a-b)/a not b/a
-        return abs( self.net_loss_flux_data[ index ]/self.incidence_flux_data[ index ] )
+        return 1-abs( self.net_loss_flux_data[ index ]/self.incidence_flux_data[ index ] )
 
