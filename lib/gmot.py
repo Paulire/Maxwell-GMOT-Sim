@@ -39,6 +39,7 @@ def load_data( fname=None, **kwarg ):
     input_data['Hx'] = eval( input_data['Hx'] )
     input_data['angles'] = eval( input_data['angles'] )
     input_data['points'] = eval( input_data['points'] )
+    #input_data['incidence_flux_data'] =  input_data['incidence_flux_data'] 
 
     return input_data
 
@@ -74,6 +75,8 @@ class linear_gmot:
 
             self.diff_efficacy = sim_data["diff_efficacy"]
 
+            self.incidence_flux_data = sim_data["incidence_flux_data"]
+
         # If no file is specifed, then the code shall use the input arguments
         else:
             # Set the verlibles which must be defined
@@ -87,6 +90,7 @@ class linear_gmot:
             self.ff_points = None 
             self.ff_angles = None
             self.diff_efficacy = None
+            self.incidence_flux_data = None
 
             # Simulation resolution
             try:
@@ -395,11 +399,72 @@ class linear_gmot:
 
         # Calulates each maximas angle
         diffraction_angles_mean = [ np.arcsin( i*self.wvl/self.period ) for i in range( order+1 ) ]
-        position_mean = 5e3*np.tan( diffraction_angles_mean )
+        position_mean = 1e3*np.tan( diffraction_angles_mean )
 
+        # Retreaves the frequncy values for the far fields
         ff_frq = mp.get_flux_freqs( self.n2f_obj )
         index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
+
+        # The maginitude of the far field in E is used to determine the size of the diffraction order at the 
+        # given far field resolution
         field_magnitude = np.abs( self.ff_data['Ez'][:,index] )**2
+
+        # The width of the zeroth order is recorded first
+        mean_index = mean_index = int( ( position_mean[0] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) )
+
+        # This loop will find the minimum field to the right of the first order diffraction
+        # It records the index of the field at that point
+        current_index = mean_index
+        while field_magnitude[current_index]/field_magnitude[mean_index] > 0.01:
+            current_index +=1
+
+        # Determine the width of the maxima
+        maxima_width = 2*self.ff_points[ current_index ]
+        print("start")
+
+        # Finds the diffraction efficany of the zeroth order
+        self.diff_efficacy = np.array(
+                                       [ self.n2f_obj.flux( mp.Y,
+                                         where=mp.Volume( mp.Vector3( self.ff_points[ mean_index ],1e3 ), mp.Vector3( maxima_width ) ),
+                                         resolution=int( 500/maxima_width ) )
+                ] )
+
+        print("######")
+        print( maxima_width )
+        print( self.ff_points[ mean_index ] )
+
+        # Find the space left to either side of the first order minimum
+        side_centre = 0.5*( self.ff_points[ current_index ] + self.ff_points[-1] )
+        side_size = self.ff_points[-1] - self.ff_points[ current_index ]
+        self.diff_efficacy = np.vstack( ( self.diff_efficacy, 
+                                       [ self.n2f_obj.flux( mp.Y,
+                                         where=mp.Volume( mp.Vector3( side_centre, 1e3 ), mp.Vector3(side_size )),
+                                         resolution=int( 500/maxima_width )  ) ]
+                                      ) )
+
+        print("######")
+        print( side_size )
+        print( side_centre )
+
+        # Find the space left to either side of the first order minimum
+        side_centre = 0.5*( self.ff_points[mean_index] - self.ff_points[ current_index ] + self.ff_points[0] )
+        side_size = self.ff_points[mean_index] - self.ff_points[ current_index ] - self.ff_points[-1]
+        self.diff_efficacy = np.vstack( ( self.diff_efficacy,
+                                       [ self.n2f_obj.flux( mp.Y,
+                                         where=mp.Volume( mp.Vector3( side_centre, 1e3 ), mp.Vector3(side_size )),
+                                         resolution=int( 500/maxima_width )  ) ]
+                                      ) )
+
+        print("######")
+        print( side_size )
+        print( side_centre )
+        print("######")
+
+        #self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data
+        print("Done")
+
+        """print("Done")
+        input()
 
         for i in range( order +1):
             mean_index = int( ( position_mean[i] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) ) 
@@ -442,7 +507,7 @@ class linear_gmot:
             
             self.diff_efficacy.append( temp_eff[index] )
 
-        print("#########")
+        print("#########")"""
 
 
     # Plots a colour map of |E|^2 with wavelength on the x-axis and angle on the y-axis
@@ -479,7 +544,6 @@ class linear_gmot:
     
     # Allows simulation data to be saved to a JSON file
     def save_data( self, fname=None, **kwarg ):
-        print(1)
         # Check if the file name is a string
         if fname == None or type( fname ) != str:
             raise TypeError( "'fname' must be a string" )
@@ -489,16 +553,13 @@ class linear_gmot:
         except:
             print("Could not save file")
             return 1
-        print(2)
 
         # Load the far fied data
         output_data = self.ff_data
         output_data.update( { "angles": self.ff_angles,"points": self.ff_points } )
-        print(3)
 
         # Convert the far field arrays to strings to preserve complex numbers
         output_data = { k:str(n.tolist()) for k,n in output_data.items() }
-        print(4)
 
         # Add all the other data
         output_data.update( {
@@ -511,9 +572,9 @@ class linear_gmot:
             "dwvl": self.dwvl,
             "res": self.res,
             "run_2D": int( self.run_2D ),
-            "diff_efficacy": self.diff_efficacy} )
+            "diff_efficacy": self.diff_efficacy.tolist(),
+            "incidence_flux_data": self.incidence_flux_data } )
 
-        print(5)
         # Dump the data to the json file
         json_data = json.dumps( output_data )
         data_file.write( json_data )
@@ -545,10 +606,9 @@ class linear_gmot:
                                 ) for i in range( len( self.ff_data['Ez'][:,0] ) ) ] 
 
         fig, axs = plt.subplots()
-        #axs.plot( self.ff_angles, np.abs( ff_p_vector )**2, '-k' )
-        #axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,0] )**2, '-k' )
         #axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
         axs.plot( self.ff_points, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
+        #axs.plot( np.abs( self.ff_data['Ez'][:,index] )**2, '-k' ) 
         axs.tick_params( direction="in" )
         axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
