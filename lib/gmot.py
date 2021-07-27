@@ -92,9 +92,10 @@ class linear_gmot:
             self.ff_data = None
             self.ff_points = None 
             self.ff_angles = None
-            self.diff_efficacy = None
+            self.diff_efficacy = np.array( [] )
             self.incidence_flux_data = None
             self.ff_dist = None
+            self.frq_values = None
 
             # Simulation resolution
             try:
@@ -201,8 +202,6 @@ class linear_gmot:
         frq_max = 1/wvl_min
         frq_min = 1/wvl_max
         dfrq = frq_max - frq_min
-
-        print( dfrq )
 
         ## Build cell ###
         # chip size - the size of the chip in the x/y direction
@@ -346,7 +345,9 @@ class linear_gmot:
 
         # Get the net flux data
         self.net_loss_flux_data = mp.get_fluxes( self.net_loss_flux_obj )
-        self.frq_values = np.array( mp.get_flux_freqs( self.net_loss_flux_obj ) )
+
+        # Store the flux frequncies
+        self.frq_values =  np.array( mp.get_near2far_freqs( self.n2f_obj ) ) 
 
         return 0
 
@@ -389,7 +390,6 @@ class linear_gmot:
 
         # Save the position and angle data
         self.ff_points = np.linspace( -0.5*ff_size, 0.5*ff_size, ff_pnt )
-        # fix line bellow
         self.ff_angles = np.arctan( self.ff_points/ff_dist )
 
         return 0
@@ -403,75 +403,79 @@ class linear_gmot:
 
 
         # Retreaves the frequncy values for the far fields
-        ff_frq = mp.get_flux_freqs( self.n2f_obj )
-        index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
+        index = np.abs( self.frq_values - 1/self.wvl ).argmin()
 
         # Diffraction efficacies are held hear for each frequncy
         # 0 = order zero, 1 = order one, 2 = order minus one
-        self.diff_efficacy = np.zeros( ( 3, len( np.array( ff_frq  ) ) ) )
+        self.diff_efficacy = np.zeros( ( 3, len( np.array( self.frq_values  ) ) ) )
 
         # Set up loop counters
         count_frq = 1
 
         # Find the efficancy for each wavelength
-        for i in range( len( np.array( ff_frq  ) ) ):
-            print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( ff_frq  ) +1 ) + " (" + str( int( 100*count_frq/( len( np.array( ff_frq  ) + 1 ) )  )) + "% done)" ) )
+        for i in range( len( np.array( self.frq_values  ) ) ):
+            print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( self.frq_values  )  ) + 1 ) + " (" + str( int( 100*count_frq/( len( np.array( self.frq_values  ) + 1 ) )  )) + "% done)" ) 
             count_frq += 1
 
-            # Calulates each maximas angle
-            diffraction_angles_mean = [ np.arcsin( j*self.wvl/self.period ) for j in range( -order, order+1 ) ]
+
+            # Calulates each maximas angl
+            wvl = 1/self.frq_values[i]
+            diffraction_angles_mean = [ np.arcsin( j*wvl/self.period ) for j in range( -order, order+1 ) ]
             position_mean = self.ff_dist*np.tan( diffraction_angles_mean )
 
             # Find the efficancy for each maxima at this wavelength
             for j in range( len( diffraction_angles_mean ) ):
-                # The maginitude of the far field in E is used to determine the size of the diffraction order at the 
-                field_magnitude = np.abs( self.ff_data['Ez'][:,j] )**2
+                # Manually find's the pynting vector and uses it's magnitude as a diffraction finder
+                Px = np.real( np.conj( self.ff_data['Ey'][:,i] )*self.ff_data['Hz'][:,i] - np.conj( self.ff_data['Ez'][:,i] )*self.ff_data['Hy'][:,i] ) 
+                Py = np.real( np.conj( self.ff_data['Ez'][:,i] )*self.ff_data['Hx'][:,i] - np.conj( self.ff_data['Ex'][:,i] )*self.ff_data['Hz'][:,i] ) 
+                Pz = np.real( np.conj( self.ff_data['Ex'][:,i] )*self.ff_data['Hy'][:,i] - np.conj( self.ff_data['Ey'][:,i] )*self.ff_data['Hx'][:,i] ) 
+
+                Pv = np.sqrt( Px**2 + Py**2 + Pz**2 )
+                field_magnitude = np.abs( Pv )**2
 
                 # Find the position of this cenre
                 mean_index = int( ( position_mean[j] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) )
 
+
                 # This loop will find the minimum field to the right of the first order diffraction
                 # It records the index of the field at that point
-                current_index_left = mean_index
-                while field_magnitude[current_index]/field_magnitude[mean_index] > 0.01:
-                    current_index_left +=1
                 current_index_right = mean_index
-                while field_magnitude[current_index]/field_magnitude[mean_index] > 0.01:
+                while field_magnitude[ current_index_right ]/field_magnitude[ mean_index ] > 0.01:
                     current_index_right +=1
+                current_index_left = mean_index
+                while field_magnitude[ current_index_left ]/field_magnitude[ mean_index ] > 0.01:
+                    current_index_left -= 1
                 
                 # Determine the width of the maxima and it's mean position
                 maxima_width = self.ff_points[ current_index_right ] - self.ff_points[ current_index_left ]
                 maxima_mean = (self.ff_points[ current_index_right ] + self.ff_points[ current_index_left ])/2
 
-                # Finally calculate the flux (power) in the just defined region
-                self.diff_efficacy[j,i] = self.n2f_obj.flux( mp.Y,
-                                                        where=mp.Volume( center=mp.Vector3( maxima_mean, self.ff_dist ),
-                                                                         size=mp.Vector3( maxima_width )),
-                                                        resolution = 1 )
+                # Calculate flux
+                self.diff_efficacy[j,i] =  np.sum( Pv[ current_index_left:current_index_right ] )*( self.ff_points[1] - self.ff_points[0] )
 
+
+        # Convert to effiancy
         self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data
 
         return 0
 
     def plot_diffraction_efficacy( self, fname=None, dpi=300, **kwarg ):
-
         # Get the frequncies
-        ff_frq = mp.get_flux_freqs( self.n2f_obj )
-
         # Convert to wavelengths
-        ff_wvl = 1e3*np.divide( 1, ff_frq )
+        ff_wvl = 1e3*np.divide( 1, self.frq_values )
 
         # Pre set style for plot
-        line_style = [ '-r','-b','-g','-k' ]
-        leg = [ '$\eta_0$', '$\eta_1$', '$\eta_{-1}$', '$3\eta_1/(1-\eta_0)$' ]
+        line_style = [ '-r','-b','-.g','-k' ]
+        leg = [ '$\eta_{-1}$', '$\eta_0$', '$\eta_1$', '$3\eta_1/(1-\eta_0)$' ]
 
         # Need to be renamebed, this is the analytical relation for the efficancies
-        combine = 3*self.diff_efficacy[1,:]/( 1 - self.diff_efficacy[0,:] )
+        combine = 3*self.diff_efficacy[2,:]/( 1 - self.diff_efficacy[1,:] )
 
         # Plot each of the efficancies
         [ plt.plot( ff_wvl, np.abs( self.diff_efficacy[i,:]), line_style[i], label=leg[i] ) for i in range( len( self.diff_efficacy[:,0] ) ) ]
         plt.plot( ff_wvl, np.abs( combine ), line_style[-1], label=leg[-1] )
         plt.legend()
+        plt.legend(frameon=False)
         plt.xlabel("Wavelength (nm)", size="x-large")
         plt.xticks(fontsize='large')
         plt.ylabel("Efficiencies", size="x-large")
@@ -571,8 +575,8 @@ class linear_gmot:
     # Plots the far field
     def plot_far_field( self, x_axis="angle", fname=None, dpi=300, **kwarg ):
         ff_p_vector = []
-        ff_frq = mp.get_flux_freqs( self.n2f_obj )
-        index = np.where( np.array( ff_frq ) == 1/self.wvl )[0][0]
+        #index = np.where( self.frq_values == 1/self.wvl )[0][0]
+        index = np.abs( self.frq_values - 1/self.wvl ).argmin()
 
         ff_p_vector = [ 
                         np.cross( np.array( [ self.ff_data['Ex'][i,index],
@@ -585,8 +589,8 @@ class linear_gmot:
 
         fig, axs = plt.subplots()
         #axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
-        axs.plot( self.ff_points, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
-        #axs.plot( np.abs( self.ff_data['Ez'][:,index] )**2, '-k' ) 
+        #axs.plot( self.ff_points, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
+        axs.plot( np.abs( self.ff_data['Ez'][:,index] )**2, '-k' ) 
         axs.tick_params( direction="in" )
         axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
