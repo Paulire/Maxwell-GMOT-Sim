@@ -414,7 +414,7 @@ class linear_gmot:
 
         # Find the efficancy for each wavelength
         for i in range( len( np.array( self.frq_values  ) ) ):
-            print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( self.frq_values  )  ) + 1 ) + " (" + str( int( 100*count_frq/( len( np.array( self.frq_values  ) + 1 ) )  )) + "% done)" ) 
+            print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( self.frq_values  )  ) + 1 ) + " (" + str( int( 100*count_frq/( len( np.array( self.frq_values  ) ) )  )) + "% done)" ) 
             count_frq += 1
 
 
@@ -480,8 +480,11 @@ class linear_gmot:
         plt.xticks(fontsize='large')
         plt.ylabel("Efficiencies", size="x-large")
         plt.yticks(fontsize='large')
-        plt.tick_params( direction='in' )
+        plt.tick_params( direction='in', length=4 )
+        plt.minorticks_on()
+        plt.tick_params( which='minor', length=2, direction='in'  )
         plt.xlim( ff_wvl[-1], ff_wvl[0] )
+        plt.ylim( 0, max( np.abs( combine  )) *1.1 )
 
         if fname == None:
             plt.show()
@@ -573,24 +576,26 @@ class linear_gmot:
         return 0
 
     # Plots the far field
-    def plot_far_field( self, x_axis="angle", fname=None, dpi=300, **kwarg ):
+    def plot_far_field( self, x_axis="angle", wvl=None, fname=None, dpi=300, **kwarg ):
         ff_p_vector = []
-        #index = np.where( self.frq_values == 1/self.wvl )[0][0]
-        index = np.abs( self.frq_values - 1/self.wvl ).argmin()
 
-        ff_p_vector = [ 
-                        np.cross( np.array( [ self.ff_data['Ex'][i,index],
-                                              self.ff_data['Ey'][i,index],
-                                              self.ff_data['Ez'][i,index] ] ),
-                                  np.array( [ self.ff_data['Hx'][i,index],
-                                              self.ff_data['Hy'][i,index],
-                                              self.ff_data['Hz'][i,index] ] ),
-                                ) for i in range( len( self.ff_data['Ez'][:,0] ) ) ] 
+        if wvl == None:
+            wvl = self.wvl
+        index = np.abs( self.frq_values - 1/wvl ).argmin()
+
+        Px = np.real( np.conj( self.ff_data['Ey'][:,index] )*self.ff_data['Hz'][:,index] - np.conj( self.ff_data['Ez'][:,index] )*self.ff_data['Hy'][:,index] ) 
+        Py = np.real( np.conj( self.ff_data['Ez'][:,index] )*self.ff_data['Hx'][:,index] - np.conj( self.ff_data['Ex'][:,index] )*self.ff_data['Hz'][:,index] ) 
+        Pz = np.real( np.conj( self.ff_data['Ex'][:,index] )*self.ff_data['Hy'][:,index] - np.conj( self.ff_data['Ey'][:,index] )*self.ff_data['Hx'][:,index] ) 
+
+        Pv = np.sqrt( Px**2 + Py**2 + Pz**2 )
+        Pv_norm_abs = np.abs( Pv )**2
+        Pv_norm_abs /= np.max( Pv_norm_abs )
 
         fig, axs = plt.subplots()
-        #axs.plot( self.ff_angles, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
-        #axs.plot( self.ff_points, np.abs( self.ff_data['Ez'][:,index] )**2, '-k' )
-        axs.plot( np.abs( self.ff_data['Ez'][:,index] )**2, '-k' ) 
+        if x_axis == "angle":
+            axs.plot( self.ff_angles,  Pv_norm_abs , '-k' )
+        else:
+            axs.plot( self.ff_points,  Pv_norm_abs , '-k' )
         axs.tick_params( direction="in" )
         axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
@@ -598,8 +603,12 @@ class linear_gmot:
 
         # Save the file unless show plot if it is named, else just show
         plt.tight_layout()
-        plt.savefig( fname, dpi=dpi )
-        plt.show()
+        if fname == None:
+            plt.show()
+        else:
+            plt.savefig( fname, dpi=dpi )
+
+        return 0
 
     # Determines the efficny of the GMOT in regards to it's flux (power)
     def gmot_efficacy( self, **kwarg ):
