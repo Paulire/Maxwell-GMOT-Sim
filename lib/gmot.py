@@ -80,6 +80,9 @@ class linear_gmot:
 
             self.frq_values = np.array( sim_data["frq_values"] )
 
+            self.incidence_flux_data = np.array( sim_data[ "incidence_flux_data" ] )
+            self.net_loss_flux_data = np.array( sim_data[ "net_loss_flux_data" ] )
+
         # If no file is specifed, then the code shall use the input arguments
         else:
             # Set the verlibles which must be defined
@@ -96,6 +99,7 @@ class linear_gmot:
             self.incidence_flux_data = None
             self.ff_dist = None
             self.frq_values = None
+            self.net_loss_flux_data = None
 
             # Simulation resolution
             try:
@@ -167,7 +171,6 @@ class linear_gmot:
         self.incidence_flux_obj = None
         self.flux_frq = None
         self.net_loss_flux_obj = None
-        self.net_loss_flux_data = None
 
         # Check if input data is correct
         if self.grating_width >= self.period:
@@ -344,7 +347,7 @@ class linear_gmot:
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
         # Get the net flux data
-        self.net_loss_flux_data = mp.get_fluxes( self.net_loss_flux_obj )
+        self.net_loss_flux_data = np.array( mp.get_fluxes( self.net_loss_flux_obj ) )
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.n2f_obj ) ) 
@@ -394,6 +397,58 @@ class linear_gmot:
 
         return 0
 
+    def get_far_field_efficacy( self, order=1, **kwarg ):
+        # Validate input values
+        if type( order ) != int:
+            return TypeError( "'order' must be an int" )
+        elif order < 0:
+            return ValueError("'order must be greater than or equle to zero'")
+
+        flux = []
+
+        # Find the efficancy for each wavelength
+        for i in range( len( np.array( self.frq_values  ) ) ):
+            # Manually find's the pynting vector and uses it's magnitude as a diffraction finder
+            Px = np.real( np.conj( self.ff_data['Ey'][:,i] )*self.ff_data['Hz'][:,i] - np.conj( self.ff_data['Ez'][:,i] )*self.ff_data['Hy'][:,i] ) 
+            Py = np.real( np.conj( self.ff_data['Ez'][:,i] )*self.ff_data['Hx'][:,i] - np.conj( self.ff_data['Ex'][:,i] )*self.ff_data['Hz'][:,i] ) 
+            Pz = np.real( np.conj( self.ff_data['Ex'][:,i] )*self.ff_data['Hy'][:,i] - np.conj( self.ff_data['Ey'][:,i] )*self.ff_data['Hx'][:,i] ) 
+
+            Pv = np.sqrt( Px**2 + Py**2 + Pz**2 )
+
+            flux.append( np.sum( Py )*(self.ff_points[1]-self.ff_points[0] ) )
+            
+        flux = np.array(flux)
+        wvl = 1000*np.divide(1, self.frq_values )
+
+        plt.plot( wvl, np.abs( flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.net_loss_flux_data ) ), '-r' )
+
+
+        meep_flux = self.n2f_obj.flux( mp.Y,
+                           where=mp.Volume( center = mp.Vector3( y=self.ff_dist ),
+                                            size = mp.Vector3( self.ff_points[-1] - self.ff_points[1] ) ),
+                           resolution=1
+                           )
+
+        meep_flux = np.array( meep_flux )
+        plt.plot( wvl, np.abs( meep_flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.net_loss_flux_data ) ), '-.g' )
+
+
+        plt.xlabel("Wavelength (nm)", size="x-large")
+        plt.xticks(fontsize='large')
+        plt.ylabel("Far and Near flux ratio", size="x-large")
+        plt.yticks(fontsize='large')
+        plt.tick_params( direction='in', length=4 )
+        plt.minorticks_on()
+        plt.tick_params( which='minor', length=2, direction='in'  )
+        plt.savefig( "near_far_flux_v2.pdf", dpi=300 )
+        plt.show()
+
+            
+
+
+
+        return 0
+
     def get_diffraction_efficacy( self, order=1, **kwarg ):
         # Validate input values
         if type( order ) != int:
@@ -436,7 +491,6 @@ class linear_gmot:
                 # Find the position of this cenre
                 mean_index = int( ( position_mean[j] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) )
 
-
                 # This loop will find the minimum field to the right of the first order diffraction
                 # It records the index of the field at that point
                 current_index_right = mean_index
@@ -451,7 +505,7 @@ class linear_gmot:
                 maxima_mean = (self.ff_points[ current_index_right ] + self.ff_points[ current_index_left ])/2
 
                 # Calculate flux
-                self.diff_efficacy[j,i] =  np.sum( Pv[ current_index_left:current_index_right ] )*( self.ff_points[1] - self.ff_points[0] )
+                self.diff_efficacy[j,i] =  np.sum( Py[ current_index_left:current_index_right ] )*( self.ff_points[1] - self.ff_points[0] )
 
 
         # Convert to effiancy
@@ -459,7 +513,7 @@ class linear_gmot:
 
         return 0
 
-    def plot_diffraction_efficacy( self, fname=None, dpi=300, **kwarg ):
+    def plot_diffraction_efficacy( self, plot_total=False, fname=None, dpi=300, **kwarg ):
         # Get the frequncies
         # Convert to wavelengths
         ff_wvl = 1e3*np.divide( 1, self.frq_values )
@@ -474,8 +528,11 @@ class linear_gmot:
         # Plot each of the efficancies
         [ plt.plot( ff_wvl, np.abs( self.diff_efficacy[i,:]), line_style[i], label=leg[i] ) for i in range( len( self.diff_efficacy[:,0] ) ) ]
         plt.plot( ff_wvl, np.abs( combine ), line_style[-1], label=leg[-1] )
-        plt.legend()
-        plt.legend(frameon=False)
+        if plot_total == True:
+            total = np.array( [ np.abs( self.diff_efficacy[i,:]) for i in range( len( self.diff_efficacy[:,0] ) ) ] )
+            total = np.sum( total, axis=0)
+            plt.plot( ff_wvl, total, '-g', label='$\Sigma_i \eta_i$' )
+        plt.legend(frameon=False, loc='left center' )
         plt.xlabel("Wavelength (nm)", size="x-large")
         plt.xticks(fontsize='large')
         plt.ylabel("Efficiencies", size="x-large")
@@ -538,11 +595,22 @@ class linear_gmot:
             return 1
 
         # Load the far fied data
-        output_data = self.ff_data
-        output_data.update( { "angles": self.ff_angles,"points": self.ff_points } )
+        if self.ff_data == None:
+            output_data = { 'Ex': '[]',
+                            'Ey': '[]',
+                            'Ez': '[]',
+                            'Hx': '[]',
+                            'Hy': '[]',
+                            'Hz': '[]',
+                            'angles': '[]',
+                            'points': '[]'
+                          }
+        else:
+            output_data = self.ff_data
+            output_data.update( { "angles": self.ff_angles,"points": self.ff_points } )
 
-        # Convert the far field arrays to strings to preserve complex numbers
-        output_data = { k:str(n.tolist()) for k,n in output_data.items() }
+            # Convert the far field arrays to strings to preserve complex numbers
+            output_data = { k:str(n.tolist()) for k,n in output_data.items() }
 
         # Add all the other data
         output_data.update( {
@@ -558,7 +626,9 @@ class linear_gmot:
             "diff_efficacy": self.diff_efficacy.tolist(),
             "incidence_flux_data": self.incidence_flux_data.tolist(),
             "ff_dist": self.ff_dist,
-            "frq_values": self.frq_values.tolist() } )
+            "frq_values": self.frq_values.tolist(),
+            "incidence_flux_data": self.incidence_flux_data.tolist(),
+            "net_loss_flux_data": self.net_loss_flux_data.tolist() } )
 
         # Dump the data to the json file
         json_data = json.dumps( output_data )
@@ -613,9 +683,7 @@ class linear_gmot:
     # Determines the efficny of the GMOT in regards to it's flux (power)
     def gmot_efficacy( self, **kwarg ):
         # Find the frequncy location for the wavelength
-        flux_frq = mp.get_flux_freqs( self.incidence_flux_obj )
-        index = np.where( np.array( flux_frq ) == 1/self.wvl )[0][0]
 
         # fix, (a-b)/a not b/a
-        return 1-abs( self.net_loss_flux_data[ index ]/self.incidence_flux_data[ index ] )
+        return 1-abs( self.net_loss_flux_data/self.incidence_flux_data )
 
