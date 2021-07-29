@@ -190,7 +190,10 @@ class linear_gmot:
         elif type( self.run_2D ) != bool:
             raise TypeError("'run_2D' must a 'bool'")
         elif type( self.wvl ) != float:
-            raise TypeError("'wvl' must be a float")
+            try:
+                self.wvl = float( self.wvl )
+            except:
+                raise TypeError("'wvl' must be a float")
         elif type( self.dwvl ) != float:
             raise TypeError("'dwvl' must be a float")
         elif type( self.nwvl  ) != int:
@@ -224,12 +227,26 @@ class linear_gmot:
         sz = 0 if self.run_2D == True else chip_size_z + 2*padding + 2*dpml
         cell = mp.Vector3( sx, sy, sz )
         pml_layer = [ mp.PML( dpml ) ]
+        #pml_layer = [ mp.Absorber( dpml ) ]
 
         # Create source
-        source = [ mp.Source( mp.GaussianSource( frq, dfrq, is_integrated=True ),
-                              component=self.polarization, 
-                              center=mp.Vector3( y=0.5*sy-dpml ),
-                              size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
+        try:
+            # If the user want't a monochromatic source, it can be requested here
+            # The monochromatic source is a continus pulse which emmits for 5 periods
+            if kwarg['mono_chrome'] == True:
+                source = [ mp.Source( mp.ContinuousSource( frq, end_time=5*self.wvl),
+                                      component=self.polarization, 
+                                      #center=mp.Vector3( y=0.5*sy-dpml ),
+                                      center=mp.Vector3( y=0 ),
+                                      size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
+            else:
+                raise TypeError("")
+        except:
+            # If monochrome is not specified then a guassian source is used
+            source = [ mp.Source( mp.GaussianSource( frq, dfrq, is_integrated=True ),
+                                  component=self.polarization, 
+                                  center=mp.Vector3( y=0.5*sy-dpml ),
+                                  size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
 
         # The greating base chip
         geometry = [ mp.Block( size=mp.Vector3( chip_size_x, plate_thickness, chip_size_z),
@@ -290,7 +307,7 @@ class linear_gmot:
                                       boundary_layers=pml_layer,
                                       symmetries=symmetries )
 
-            n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
+            n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.10*self.grating_height )
             n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
             self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
             self.sim.load_near2far( kwarg["n2f_file"], self.n2f_obj )
@@ -309,7 +326,7 @@ class linear_gmot:
                                   symmetries=symmetries )
 
         # This is the n2f for no geomitry
-        n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.05*self.grating_height )
+        n2f_point = mp.Vector3( y=-0.5*sy + dpml + 1.05*( plate_thickness + self.grating_height ) )
         n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
         n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
 
@@ -423,14 +440,14 @@ class linear_gmot:
         plt.plot( wvl, np.abs( flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.net_loss_flux_data ) ), '-r' )
 
 
-        meep_flux = self.n2f_obj.flux( mp.Y,
+        """meep_flux = self.n2f_obj.flux( mp.Y,
                            where=mp.Volume( center = mp.Vector3( y=self.ff_dist ),
                                             size = mp.Vector3( self.ff_points[-1] - self.ff_points[1] ) ),
                            resolution=1
                            )
 
         meep_flux = np.array( meep_flux )
-        plt.plot( wvl, np.abs( meep_flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.net_loss_flux_data ) ), '-.g' )
+        plt.plot( wvl, np.abs( meep_flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.net_loss_flux_data ) ), '-.g' )"""
 
 
         plt.xlabel("Wavelength (nm)", size="x-large")
