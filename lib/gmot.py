@@ -228,7 +228,7 @@ class linear_gmot:
         plate_thickness = 1                                 # Thickness of the chip
 
         sx = dpml + padding + chip_size_x + padding + dpml
-        sy = dpml + plate_thickness + self.grating_height + frq*5.0 + dpml
+        sy = dpml + 2*padding + plate_thickness + self.grating_height + frq*5.0 + dpml
         sz = 0 if self.run_2D == True else chip_size_z + 2*padding + 2*dpml
         cell = mp.Vector3( sx, sy, sz )
         pml_layer = [ mp.PML( dpml ) ]
@@ -336,7 +336,7 @@ class linear_gmot:
         n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
 
         # This is the incoming flux, it is idenical in shape to the n2f 
-        incidence_flux_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
+        incidence_flux_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=-1 )
         self.incidence_flux_obj = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
 
         # First run
@@ -384,17 +384,17 @@ class linear_gmot:
         self.flux_box_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
                                                   center=mp.Vector3( -0.5*( sx - padding ) + dpml , 0.5*( n2f_y_pos + ( 0.5*( -sy + padding ) + dpml ) ) ),
                                                   size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy + padding ) + dpml ) ),
-                                                  weight=-1.0 )
+                                                  weight=1.0 )
                                            )
         self.flux_box_obj[4] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
                                                   center=mp.Vector3( 0.5*( sx - padding ) - dpml , 0.5*( n2f_y_pos + ( 0.5*( -sy + padding ) + dpml ) ) ),
                                                   size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy + padding ) + dpml ) ),
-                                                  weight=1.0 )
+                                                  weight=-1.0 )
                                            )
         self.flux_box_obj[5] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
                                                   center=mp.Vector3( y=0.5*( padding - sy ) + dpml ),
                                                   size=mp.Vector3( padding + chip_size_x ),
-                                                  weight=-1.0 )
+                                                  weight=1.0 )
                                            )
 
 
@@ -407,6 +407,12 @@ class linear_gmot:
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
 
+        self.sim.plot2D(fields=mp.Ez,
+                        field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
+                        boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                        output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+        plt.show()
+    
         return 0
 
     # The function builds the animation
@@ -424,9 +430,9 @@ class linear_gmot:
         
         animate.to_mp4( 6, 'anm.mp4' )
         self.sim.plot2D(fields=mp.Ez,
-                   field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
-                   boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
-                   output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+                        field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
+                        boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                        output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
         plt.show()
 
     # Users invoke this request computaion of the far fields
@@ -737,4 +743,55 @@ class linear_gmot:
 
         # fix, (a-b)/a not b/a
         return 1-abs( self.flux_box_data[0]/self.incidence_flux_data )
+
+    def plot_flux_box_data( self, **kwarg ):
+        flux_names = ['cen_top','left_top','right_top','left','right','bot']
+
+        # convert the wavelengths to frequncies
+        wvl = np.divide( 1, self.frq_values )
+
+        # Total input flux
+        total_in =  self.flux_box_data['cen_top'] + self.flux_box_data['left_top'] + self.flux_box_data['right_top'] 
+        print( total_in )
+        total_loss = np.abs( ( self.flux_box_data['bot'] + self.flux_box_data['left'] + self.flux_box_data['right'] )/total_in )
+        bot_loss = np.abs( self.flux_box_data['bot']/total_in )
+        side_effect = np.abs( self.flux_box_data['bot']/( self.flux_box_data['left_top'] + self.flux_box_data['right_top'] ) )
+
+        # Data and plotting is done together
+        fig, axs = plt.subplots( 2, 2 )
+        axs = axs.flatten()
+
+        # First plot is the total flux which does not leave the out of reflection
+        not_reflected = ( self.incidence_flux_data + self.flux_box_data['cen_top'] )/self.incidence_flux_data 
+
+        axs[0].plot( self.frq_values, not_reflected, '-k' )
+        axs[0].set_xlabel("Wavelength (nm)", size="x-large")
+        axs[0].set_ylabel("Loss", size="x-large")
+        axs[0].tick_params( direction='in', axis='both', length=4, right=True, top=True, which="both" )
+        axs[0].minorticks_on()
+        axs[0].tick_params( which='minor', length=2, direction='in'  )
+        #axs[0].set_xlim( wvl[0], wvl[-1] )
+        #axs[0].set_ylim( 0, 1.00 )
+
+
+        axs[1].plot( self.frq_values, bot_loss, '-k' )
+        axs[1].set_xlabel("Wavelength (nm)", size="x-large")
+        axs[1].set_ylabel("Loss", size="x-large")
+        axs[1].tick_params( direction='in', axis='both', length=4, right=True, top=True, which="both" )
+        axs[1].minorticks_on()
+        axs[1].tick_params( which='minor', length=2, direction='in'  )
+        #axs[1].set_xlim( wvl[0], wvl[-1] )
+        #axs[1].set_ylim( 0, 1.00 )
+
+        axs[2].plot( self.frq_values, side_effect, '-k' )
+        axs[2].set_xlabel("Wavelength (nm)", size="x-large")
+        axs[2].set_ylabel("Loss", size="x-large")
+        axs[2].tick_params( direction='in', axis='both', length=4, right=True, top=True, which="both" )
+        axs[2].minorticks_on()
+        axs[2].tick_params( which='minor', length=2, direction='in'  )
+        #axs[2].set_xlim( wvl[0], wvl[-1] )
+        #axs[2].set_ylim( 0, 1.00 )
+
+        plt.tight_layout()
+        plt.show()
 
