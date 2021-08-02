@@ -208,6 +208,7 @@ class linear_gmot:
         frq_max = 1/wvl_min
         frq_min = 1/wvl_max
         dfrq = frq_max - frq_min
+        frq_cen = 0.5*( frq_max + frq_min )
 
         ## Build cell ###
         # chip size - the size of the chip in the x/y direction
@@ -243,7 +244,7 @@ class linear_gmot:
                 raise TypeError("")
         except:
             # If monochrome is not specified then a guassian source is used
-            source = [ mp.Source( mp.GaussianSource( frq, dfrq, is_integrated=True ),
+            source = [ mp.Source( mp.GaussianSource( wavelength=self.wvl, fwidth=self.dwvl, is_integrated=True ),
                                   component=self.polarization, 
                                   center=mp.Vector3( y=0.5*sy-dpml ),
                                   size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
@@ -503,7 +504,7 @@ class linear_gmot:
                 Pz = np.real( np.conj( self.ff_data['Ex'][:,i] )*self.ff_data['Hy'][:,i] - np.conj( self.ff_data['Ey'][:,i] )*self.ff_data['Hx'][:,i] ) 
 
                 Pv = np.sqrt( Px**2 + Py**2 + Pz**2 )
-                field_magnitude = np.abs( Pv )**2
+                field_magnitude = np.abs( Py )**2
 
                 # Find the position of this cenre
                 mean_index = int( ( position_mean[j] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) )
@@ -549,16 +550,16 @@ class linear_gmot:
             total = np.array( [ np.abs( self.diff_efficacy[i,:]) for i in range( len( self.diff_efficacy[:,0] ) ) ] )
             total = np.sum( total, axis=0)
             plt.plot( ff_wvl, total, '-g', label='$\Sigma_i \eta_i$' )
-        plt.legend(frameon=False, loc='left center' )
+        plt.legend(frameon=False)#, loc='left center' )
         plt.xlabel("Wavelength (nm)", size="x-large")
         plt.xticks(fontsize='large')
         plt.ylabel("Efficiencies", size="x-large")
         plt.yticks(fontsize='large')
-        plt.tick_params( direction='in', length=4 )
+        plt.tick_params( direction='in', axis='both', length=4, right=True, top=True, which="both" )
         plt.minorticks_on()
         plt.tick_params( which='minor', length=2, direction='in'  )
         plt.xlim( ff_wvl[-1], ff_wvl[0] )
-        plt.ylim( 0, max( np.abs( combine  )) *1.1 )
+        plt.ylim( 0, 1.50 )
 
         if fname == None:
             plt.show()
