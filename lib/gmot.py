@@ -85,6 +85,8 @@ class linear_gmot:
             flux_names = ['cen_top','left_top','right_top','left','right','bot']
             self.flux_box_data = { key:np.array( sim_data[ key ] ) for key in flux_names }
 
+            self.incidence_side_flux_data = { key:np.array( sim_data['in_' + key] ) for key in ['left', 'right'] } 
+
         # If no file is specifed, then the code shall use the input arguments
         else:
             # Set the verlibles which must be defined
@@ -103,7 +105,8 @@ class linear_gmot:
             self.frq_values = None
             self.flux_box_data = None
             self.flux_box_obj = None
-            self.flux_box_data= None
+            self.flux_box_data = None
+            self.incidence_side_flux_obj = np.array( [ None, None ] )
 
             # Simulation resolution
             try:
@@ -339,14 +342,30 @@ class linear_gmot:
         incidence_flux_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=-1 )
         self.incidence_flux_obj = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
 
+        # Extra incoming flux to be used by the flux box (either side of the chip)
+        self.incidence_side_flux_obj[0] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
+                                                  center=mp.Vector3( -0.5*sx + 0.75*padding + dpml , n2f_y_pos ),
+                                                  size=mp.Vector3( 0.5*padding ),
+                                                  weight=-1.0 )
+                                           )
+        self.incidence_side_flux_obj[1] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
+                                                  center=mp.Vector3( 0.5*sx - 0.75*padding - dpml , n2f_y_pos ),
+                                                  size=mp.Vector3( 0.5*padding ),
+                                                  weight=-1.0 )
+                                           )
+
         # First run
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
         # Get the incoming n2f data
         n2f_data_no_chip = self.sim.get_near2far_data( n2f_obj_no_chip )
 
-        # Get the near field flux and save if specified
+        # Get the near field flux and save
         self.incidence_flux_data = np.array( mp.get_fluxes( self.incidence_flux_obj ) )
+
+        # Get the side incidence flux data and save
+        names = [ 'left', 'right' ]
+        self.incidence_side_flux_data = { names[i]: np.array( mp.get_fluxes( self.incidence_side_flux_obj[i] ) ) for i in range( len( names ) ) }
         
         self.sim.reset_meep()
 
@@ -686,6 +705,7 @@ class linear_gmot:
             "incidence_flux_data": self.incidence_flux_data.tolist() } )
 
         output_data.update( { key:data.tolist() for key,data in self.flux_box_data.items() } )
+        output_data.update( { ( 'in_' + key ):data.tolist() for key,data in self.incidence_side_flux_data.items() } )
 
         # Dump the data to the json file
         json_data = json.dumps( output_data )
@@ -748,7 +768,7 @@ class linear_gmot:
         flux_names = ['cen_top','left_top','right_top','left','right','bot']
 
         # convert the wavelengths to frequncies
-        wvl = np.divide( 1, self.frq_values )
+        wvl = 1000*np.divide( 1, self.frq_values )
 
         # Total input flux
         total_in =  self.flux_box_data['cen_top'] + self.flux_box_data['left_top'] + self.flux_box_data['right_top'] 
@@ -762,9 +782,12 @@ class linear_gmot:
         axs = axs.flatten()
 
         # First plot is the total flux which does not leave the out of reflection
-        not_reflected = ( self.incidence_flux_data + self.flux_box_data['cen_top'] )/self.incidence_flux_data 
+        total_out_top = -( self.flux_box_data['cen_top'] - self.incidence_flux_data + 
+                          self.flux_box_data['left_top'] - self.incidence_side_flux_data['left'] +
+                          self.flux_box_data['right_top'] - self.incidence_side_flux_data['right'] )
+        not_reflected = total_out_top/self.incidence_flux_data 
 
-        axs[0].plot( self.frq_values, not_reflected, '-k' )
+        axs[0].plot( wvl, not_reflected, '-k' )
         axs[0].set_xlabel("Wavelength (nm)", size="x-large")
         axs[0].set_ylabel("Loss", size="x-large")
         axs[0].tick_params( direction='in', axis='both', length=4, right=True, top=True, which="both" )
