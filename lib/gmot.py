@@ -81,7 +81,9 @@ class linear_gmot:
             self.frq_values = np.array( sim_data["frq_values"] )
 
             self.incidence_flux_data = np.array( sim_data[ "incidence_flux_data" ] )
-            self.net_loss_flux_data = np.array( sim_data[ "net_loss_flux_data" ] )
+
+            flux_names = ['cen_top','left_top','right_top','left','right','bot']
+            self.flux_box_data = { key:np.array( sim_data[ key ] ) for key in flux_names }
 
         # If no file is specifed, then the code shall use the input arguments
         else:
@@ -99,7 +101,9 @@ class linear_gmot:
             self.incidence_flux_data = None
             self.ff_dist = None
             self.frq_values = None
-            self.net_loss_flux_data = None
+            self.flux_box_data = None
+            self.flux_box_obj = None
+            self.flux_box_data= None
 
             # Simulation resolution
             try:
@@ -220,7 +224,7 @@ class linear_gmot:
         dpml = 0.5*self.wvl*3                                    # PML thickness
         chip_size_x = self.num_period*self.period           # Chip length in x
         chip_size_z = 0 if self.run_2D == True else 1       
-        padding = 0                                         # Padding between the wall and the side of the chip
+        padding = 1                                         # Padding between the wall and the side of the chip
         plate_thickness = 1                                 # Thickness of the chip
 
         sx = dpml + padding + chip_size_x + padding + dpml
@@ -237,8 +241,7 @@ class linear_gmot:
             if kwarg['mono_chrome'] == True:
                 source = [ mp.Source( mp.ContinuousSource( frq, end_time=5*self.wvl),
                                       component=self.polarization, 
-                                      #center=mp.Vector3( y=0.5*sy-dpml ),
-                                      center=mp.Vector3( y=0 ),
+                                      center=mp.Vector3( y=0.5*sy-dpml - padding ),
                                       size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
             else:
                 raise TypeError("")
@@ -246,17 +249,17 @@ class linear_gmot:
             # If monochrome is not specified then a guassian source is used
             source = [ mp.Source( mp.GaussianSource( wavelength=self.wvl, fwidth=self.dwvl, is_integrated=True ),
                                   component=self.polarization, 
-                                  center=mp.Vector3( y=0.5*sy-dpml ),
+                                  center=mp.Vector3( y=0.5*sy-dpml - padding ),
                                   size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
 
         # The greating base chip
         geometry = [ mp.Block( size=mp.Vector3( chip_size_x, plate_thickness, chip_size_z),
-                               center=mp.Vector3( y=-0.5*( sy - plate_thickness ) + dpml ),
+                               center=mp.Vector3( y=-0.5*( sy - plate_thickness ) + dpml + padding ),
                                material=self.grating_material ) ]
 
         x_cen = np.linspace( -0.5*chip_size_x, 0.5*chip_size_x, self.num_period, endpoint=False)
         x_cen += 0.5*(x_cen[1] - x_cen[0])
-        y_cen = -0.5*sy + dpml + plate_thickness
+        y_cen = -0.5*sy + dpml + plate_thickness + padding
 
         # The gratings are built here
         for i in range( self.num_period ):
@@ -327,7 +330,8 @@ class linear_gmot:
                                   symmetries=symmetries )
 
         # This is the n2f for no geomitry
-        n2f_point = mp.Vector3( y=-0.5*sy + dpml + 1.05*( plate_thickness + self.grating_height ) )
+        n2f_y_pos = -0.5*sy + dpml + padding + 1.05*( plate_thickness + self.grating_height ) 
+        n2f_point = mp.Vector3( y=n2f_y_pos )
         n2f_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y )
         n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
 
@@ -358,17 +362,50 @@ class linear_gmot:
         self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region )
         self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
-        # Add flux monitor which is the net loss
-        self.net_loss_flux_obj = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
+        # This creates the flux box to monitor incoming flux and flux lost to the side (or even transmited through the matirial)
+        # The first is the cental frount flux, the next two are the left and right frount
+        # The the two after are the left and right side fluxes and the last is the back flux, the side
+        # and back fluxes are placed between the PML and chip
+        flux_names = ['cen_top','left_top','right_top','left','right','bot']
+        self.flux_box_obj = [ 0 for i in range( len( flux_names ) ) ]                # Stores each flux box position in this array
+
+        # Adds the flux box object to the simulation
+        self.flux_box_obj[0] = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
+        self.flux_box_obj[1] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
+                                                  center=mp.Vector3( -0.5*sx + 0.75*padding + dpml , n2f_y_pos ),
+                                                  size=mp.Vector3( 0.5*padding ),
+                                                  weight=-1.0 )
+                                           )
+        self.flux_box_obj[2] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
+                                                  center=mp.Vector3( 0.5*sx - 0.75*padding - dpml , n2f_y_pos ),
+                                                  size=mp.Vector3( 0.5*padding ),
+                                                  weight=-1.0 )
+                                           )
+        self.flux_box_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
+                                                  center=mp.Vector3( -0.5*( sx - padding ) + dpml , 0.5*( n2f_y_pos + ( 0.5*( -sy + padding ) + dpml ) ) ),
+                                                  size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy + padding ) + dpml ) ),
+                                                  weight=-1.0 )
+                                           )
+        self.flux_box_obj[4] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
+                                                  center=mp.Vector3( 0.5*( sx - padding ) - dpml , 0.5*( n2f_y_pos + ( 0.5*( -sy + padding ) + dpml ) ) ),
+                                                  size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy + padding ) + dpml ) ),
+                                                  weight=1.0 )
+                                           )
+        self.flux_box_obj[5] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
+                                                  center=mp.Vector3( y=0.5*( padding - sy ) + dpml ),
+                                                  size=mp.Vector3( padding + chip_size_x ),
+                                                  weight=-1.0 )
+                                           )
+
 
         # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
         # Get the net flux data
-        self.net_loss_flux_data = np.array( mp.get_fluxes( self.net_loss_flux_obj ) )
+        self.flux_box_data = { flux_names[i]:np.array( mp.get_fluxes( self.flux_box_obj[i]  ) ) for i in range( len( self.flux_box_obj ) ) }
 
         # Store the flux frequncies
-        self.frq_values =  np.array( mp.get_near2far_freqs( self.n2f_obj ) ) 
+        self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
 
         return 0
 
@@ -438,7 +475,7 @@ class linear_gmot:
         flux = np.array(flux)
         wvl = 1000*np.divide(1, self.frq_values )
 
-        plt.plot( wvl, np.abs( flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.net_loss_flux_data ) ), '-r' )
+        plt.plot( wvl, np.abs( flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.flux_box_data[0] ) ), '-r' )
 
 
         """meep_flux = self.n2f_obj.flux( mp.Y,
@@ -448,7 +485,7 @@ class linear_gmot:
                            )
 
         meep_flux = np.array( meep_flux )
-        plt.plot( wvl, np.abs( meep_flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.net_loss_flux_data ) ), '-.g' )"""
+        plt.plot( wvl, np.abs( meep_flux)/( np.abs( self.incidence_flux_data ) - np.abs( self.flux_box_data[0] ) ), '-.g' )"""
 
 
         plt.xlabel("Wavelength (nm)", size="x-large")
@@ -458,12 +495,8 @@ class linear_gmot:
         plt.tick_params( direction='in', length=4 )
         plt.minorticks_on()
         plt.tick_params( which='minor', length=2, direction='in'  )
-        plt.savefig( "near_far_flux_v2.pdf", dpi=300 )
+        #plt.savefig( "near_far_flux_v2.pdf", dpi=300 )
         plt.show()
-
-            
-
-
 
         return 0
 
@@ -524,7 +557,6 @@ class linear_gmot:
 
                 # Calculate flux
                 self.diff_efficacy[j,i] =  np.sum( Py[ current_index_left:current_index_right ] )*( self.ff_points[1] - self.ff_points[0] )
-
 
         # Convert to effiancy
         self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data
@@ -645,8 +677,9 @@ class linear_gmot:
             "incidence_flux_data": self.incidence_flux_data.tolist(),
             "ff_dist": self.ff_dist,
             "frq_values": self.frq_values.tolist(),
-            "incidence_flux_data": self.incidence_flux_data.tolist(),
-            "net_loss_flux_data": self.net_loss_flux_data.tolist() } )
+            "incidence_flux_data": self.incidence_flux_data.tolist() } )
+
+        output_data.update( { key:data.tolist() for key,data in self.flux_box_data.items() } )
 
         # Dump the data to the json file
         json_data = json.dumps( output_data )
@@ -703,5 +736,5 @@ class linear_gmot:
         # Find the frequncy location for the wavelength
 
         # fix, (a-b)/a not b/a
-        return 1-abs( self.net_loss_flux_data/self.incidence_flux_data )
+        return 1-abs( self.flux_box_data[0]/self.incidence_flux_data )
 
