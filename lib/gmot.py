@@ -550,9 +550,8 @@ class linear_gmot:
 
         # Find the efficancy for each wavelength
         for i in range( len( np.array( self.frq_values  ) ) ):
-            print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( self.frq_values  )  ) + 1 ) + " (" + str( int( 100*count_frq/( len( np.array( self.frq_values  ) ) )  )) + "% done)" ) 
+            print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( self.frq_values  )  ) ) + " (" + str( int( 100*count_frq/( len( np.array( self.frq_values  ) ) )  )) + "% done)" ) 
             count_frq += 1
-
 
             # Calulates each maximas angl
             wvl = 1/self.frq_values[i]
@@ -586,8 +585,9 @@ class linear_gmot:
                 maxima_mean = (self.ff_points[ current_index_right ] + self.ff_points[ current_index_left ])/2
 
                 # Calculate flux
-                self.diff_efficacy[j,i] =  np.sum( Pv[ current_index_left:current_index_right ] )*( self.ff_points[1] - self.ff_points[0] )
-
+                self.diff_efficacy[j,i] =  np.sum( Py[ current_index_left:current_index_right ] )*( self.ff_points[1] - self.ff_points[0] )
+                #self.diff_efficacy[j,i] =  np.sum( Py[ : ] )*( self.ff_points[1] - self.ff_points[0] )
+                
         # Convert to effiancy
         self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data["top"]
 
@@ -743,9 +743,11 @@ class linear_gmot:
 
         fig, axs = plt.subplots()
         if x_axis == "angle":
-            axs.plot( self.ff_angles,  Pv_norm_abs , '-k' )
+            #axs.plot( self.ff_angles,  Pv_norm_abs , '-k' )
+            axs.plot( self.ff_angles, Py/np.max( Py ), '-k' )
         else:
-            axs.plot( self.ff_points,  Pv_norm_abs , '-k' )
+            #axs.plot( self.ff_points,  Pv_norm_abs , '-k' )
+            axs.plot( self.ff_points, Py/np.max( Py ), '-k' )
         axs.tick_params( direction="in" )
         axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
