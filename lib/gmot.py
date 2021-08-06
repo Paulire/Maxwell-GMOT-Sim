@@ -3,6 +3,7 @@ from meep import materials as mat
 import numpy as np
 from matplotlib import pyplot as plt
 from sys import exit
+from scipy import signal
 import json
 
 def __default_greating__( self, cen, size_x, size_z ):
@@ -223,7 +224,8 @@ class linear_gmot:
         dpml = 0.5*self.wvl*3                                    # PML thickness
         chip_size_x = self.num_period*self.period           # Chip length in x
         chip_size_z = 0 if self.run_2D == True else 1       
-        padding = 2/self.res                                         # Padding between the wall and the side of the chip
+        padding = 3/self.res                                         # Padding between the wall and the side of the chip
+        padding = 0
         plate_thickness = 1                                 # Thickness of the chip
 
         sx = dpml + padding + chip_size_x + padding + dpml
@@ -328,9 +330,7 @@ class linear_gmot:
                                       symmetries=symmetries )
 
             n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.10*self.grating_height )
-            self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen,
-                                                                        n2f_region_left,
-                                                                        n2f_region_right )
+            self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
             self.sim.load_near2far( kwarg["n2f_file"], self.n2f_obj )
             
             return 0
@@ -348,9 +348,7 @@ class linear_gmot:
 
         # N2F regions have a top left and right point
 
-        n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen,
-                                                                       n2f_region_left,
-                                                                       n2f_region_right )
+        n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
 
         # This is the incoming flux, it is idenical in shape to the n2f 
         flux_names = ['top','left','right','bot']
@@ -382,6 +380,7 @@ class linear_gmot:
 
         # Get the side incidence flux data and save
         self.incidence_flux_data = { flux_names[i]: np.array( mp.get_fluxes( self.incidence_flux_obj[i] ) ) for i in range( len( flux_names ) ) }
+
         
         self.sim.reset_meep()
 
@@ -394,9 +393,7 @@ class linear_gmot:
                                   symmetries=symmetries )
 
         # Add the near2far monitor then set to remove the incoming data
-        self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen,
-                                                                    n2f_region_left,
-                                                                    n2f_region_right )
+        self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
         self.sim.load_minus_near2far_data( self.n2f_obj, n2f_data_no_chip )
 
         # This creates the flux box to monitor incoming flux and flux lost to the side (or even transmited through the matirial)
@@ -430,11 +427,6 @@ class linear_gmot:
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
-        self.sim.plot2D(fields=mp.Ez,
-                        field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
-                        boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
-                        output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()
     
         return 0
 
@@ -752,6 +744,10 @@ class linear_gmot:
         axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
         axs.set_xlabel( "Angle (rad)", size="x-large") if x_axis == "angle" else axs.set_xlabel( "Far field position (μm)", size="x-large")
+
+        #signal_peak = signal.find_peaks( Py/np.max(Py) )
+        #[ plt.plot( self.ff_angles[ i ], (Py/np.max(Py))[i], '.r' ) for i in signal_peak[0] ]
+        #print(signal_peak)
 
         # Save the file unless show plot if it is named, else just show
         plt.tight_layout()
