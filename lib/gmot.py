@@ -58,29 +58,27 @@ class linear_gmot:
             sim_data = load_data( fname=fname )
 
             # Set the basic data
-            self.num_period = int( sim_data["num_period"] )
-            self.period = float( sim_data["period"] )
-            self.grating_width = float( sim_data["grating_width"] )
-            self.grating_height = float( sim_data["grating_height"] )
-            self.wvl = float( sim_data["wvl"] )
-            self.nwvl = int( sim_data["nwvl"] )
-            self.dwvl = float( sim_data["dwvl"] )
-            self.res = int( sim_data["res"] )
-            self.run_2D = bool( sim_data["run_2D"] )
+            self.num_period = int( sim_data["num_period"] )                     # Number of periods
+            self.period = float( sim_data["period"] )                           # Period (µm)
+            self.grating_width = float( sim_data["grating_width"])              # Size of low part (µm)
+            self.grating_height = float( sim_data["grating_height"] )           # Height of grating (µm) - excludes coating
+            self.wvl = float( sim_data["wvl"] )                                 # Wavelength in (µm)
+            self.nwvl = int( sim_data["nwvl"] )                                 # Number of wavelength
+            self.dwvl = float( sim_data["dwvl"] )                               # Wavelength width (does not work) 
+            self.res = int( sim_data["res"] )                                   # Simulation resolution
+            self.frq_values = np.array( sim_data["frq_values"] )                # Stores frequncy's
+            self.run_2D = bool( sim_data["run_2D"] )                            # 3D or 2D simulation (True=2D)
 
             # Get far field data from loaded file
-            self.ff_points = np.array( sim_data['points'] )
-            self.ff_angles = np.array( sim_data['angles'] )
-            self.ff_data = { key:np.array(sim_data[key]) for key in ['Ex','Ey','Ez','Hx','Hy','Hz'] }
+            self.ff_points = np.array( sim_data['points'] )                     # Position in far field (µm)
+            self.ff_angles = np.array( sim_data['angles'] )                     # Angle for each point (rad)
+            self.ff_dist = sim_data["ff_dist"]                                  # Distance to the far field
+            self.ff_data = { key:np.array(sim_data[key]) for key in ['Ex','Ey','Ez','Hx','Hy','Hz'] }   # Far field values
 
+            # Diffraction order efficancy array
             self.diff_efficacy = np.array( sim_data["diff_efficacy"] )
 
-            self.ff_dist = sim_data["ff_dist"]
-
-            self.frq_values = np.array( sim_data["frq_values"] )
-
-            #self.incidence_flux_data = np.array( sim_data[ "incidence_flux_data" ] )
-
+            # Flux box around the gMOT data, empty simulaton and filled
             flux_names = ['top','left','right','bot']
             self.flux_box_data = { key:np.array( sim_data[ key ] ) for key in flux_names }
             self.incidence_flux_data = { key:np.array( sim_data['in_' + key] ) for key in flux_names } 
@@ -169,12 +167,11 @@ class linear_gmot:
             self.polarization = mp.Ez
 
 
-        self.sim = []
-        self.incidence_flux_obj = [ None for i in range( 6 ) ]
-        self.flux_box_obj = [ None for i in range( 4 ) ]
-        self.n2f_obj = None
-        self.flux_frq = None
-        self.net_loss_flux_obj = None
+        # Some extra data which needs to be defined
+        self.sim = []                                               # Will store the Meep simulation object
+        self.incidence_flux_obj = [ None for i in range( 6 ) ]      # Flux box obeject for empty symmulation
+        self.flux_box_obj = [ None for i in range( 4 ) ]            # Flux box for full simulation
+        self.n2f_obj = None                                         # Stores the near2far object in both simulations
 
         # Check if input data is correct
         if self.grating_width >= self.period:
@@ -205,7 +202,9 @@ class linear_gmot:
         elif self.polarization == None:
             raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
 
+    # This is called to run the simulation
     def run( self, **kwarg ):
+        #Frequncy values and ranges are defined here
         frq = 1/self.wvl
         wvl_max = self.wvl + 0.5*self.dwvl
         wvl_min = self.wvl - 0.5*self.dwvl
@@ -222,64 +221,46 @@ class linear_gmot:
         #################
         # Define the basic units for the simulation
         dpml = 0.5*self.wvl*3                                    # PML thickness
-        chip_size_x = self.num_period*self.period           # Chip length in x
-        chip_size_z = 0 if self.run_2D == True else 1       
-        padding = 3/self.res                                         # Padding between the wall and the side of the chip
-        padding = 0
-        plate_thickness = 1                                 # Thickness of the chip
+        chip_size_x = self.num_period*self.period                # Chip length in x
+        chip_size_z = 0 if self.run_2D == True else 1            # Chip length in z   
+        padding = 0                                              # Spaceing between the PML and chip can be set   
+        plate_thickness = 1                                      # Thickness of the chip
 
-        sx = dpml + padding + chip_size_x + padding + dpml
-        sy = dpml + 2*padding + plate_thickness + self.grating_height + frq*5.0 + dpml
-        sz = 0 if self.run_2D == True else chip_size_z + 2*padding + 2*dpml
-        cell = mp.Vector3( sx, sy, sz )
-        pml_layer = [ mp.PML( dpml ) ]
+        # Defines cell geomitry
+        sx = dpml + padding + chip_size_x + padding + dpml       # Length of the cell in x
+        sy = dpml + 2*padding + plate_thickness + self.grating_height + frq*5.0 + dpml # same but in y
+        sz = 0 if self.run_2D == True else chip_size_z + 2*padding + 2*dpml # and z
+        cell = mp.Vector3( sx, sy, sz )                          # Vector to store the cell dimentions
+        pml_layer = [ mp.PML( thickness=dpml ) ]                 # PML system for Meep
 
         # Near2Far regions are defined here aswell as positioning
         n2f_y_pos = -0.5*sy + dpml + padding + 1.0*( plate_thickness + self.grating_height ) 
         n2f_point = mp.Vector3( y=n2f_y_pos )
 
-        n2f_region_cen = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x + padding ), direction=mp.Y, weight=1 )
-        n2f_region_left = mp.Near2FarRegion( center=mp.Vector3( -0.5*( sx - padding ) + dpml ,
-                                                                 0.5*( n2f_y_pos + ( 0.5*( -sy + padding ) + dpml ) ) ),
-                                             size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy + padding ) + dpml ) ),
-                                             direction=mp.X,
-                                             weight=1.0 )
-        n2f_region_right = mp.Near2FarRegion( center=mp.Vector3( 0.5*( sx - padding ) - dpml ,
-                                                                 0.5*( n2f_y_pos + ( 0.5*( -sy + padding ) + dpml ) ) ),
-                                              size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy + padding ) + dpml ) ),
-                                              direction=mp.X,
-                                              weight=-1.0 )
+        # Defines the near2far region, a single line aross the top of the chip
+        n2f_region_cen = mp.Near2FarRegion( center=n2f_point,
+                                            size=mp.Vector3( chip_size_x + padding ),
+                                            direction=mp.Y, weight=1 )
 
         # Flux regions are deffined here
 
         # Create source
-        try:
-            # If the user want't a monochromatic source, it can be requested here
-            # The monochromatic source is a continus pulse which emmits for 5 periods
-            if kwarg['mono_chrome'] == True:
-                source = [ mp.Source( mp.ContinuousSource( frq, end_time=5*self.wvl),
-                                      component=self.polarization, 
-                                      center=mp.Vector3( y=0.5*sy-dpml - padding ),
-                                      size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
-            else:
-                raise TypeError("")
-        except:
-            # If monochrome is not specified then a guassian source is used
-            source = [ mp.Source( mp.GaussianSource( wavelength=self.wvl, fwidth=self.dwvl, is_integrated=True ),
-                                  component=self.polarization, 
-                                  center=mp.Vector3( y=0.5*sy-dpml - padding ),
-                                  size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
+        source = [ mp.Source( mp.GaussianSource( wavelength=self.wvl, fwidth=self.dwvl, is_integrated=True ),
+                              component=self.polarization, 
+                              center=mp.Vector3( y=0.5*sy-dpml - padding ),
+                              size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
 
         # The greating base chip
         geometry = [ mp.Block( size=mp.Vector3( chip_size_x, plate_thickness, chip_size_z),
                                center=mp.Vector3( y=-0.5*( sy - plate_thickness ) + dpml + padding ),
                                material=self.grating_material ) ]
 
+        # The postiontions of the chip is defined here for the user to build around
         x_cen = np.linspace( -0.5*chip_size_x, 0.5*chip_size_x, self.num_period, endpoint=False)
         x_cen += 0.5*(x_cen[1] - x_cen[0])
         y_cen = -0.5*sy + dpml + plate_thickness + padding
 
-        # The gratings are built here
+        # The gratings are built here, the grating function is called for each period
         for i in range( self.num_period ):
             geometry.extend( self.greating_func( self, 
                                                  [ x_cen[i], y_cen, 0 ],
@@ -287,15 +268,8 @@ class linear_gmot:
                                                  chip_size_z ) )
 
         # Add symitries if not stated or is stated
-        try:
-            if kwarg["symmetries"] == True:
-                raise
-            else:
-                symmetries = []
-        except:
-            symmetries = [ mp.Mirror( mp.X ) ]
-            symmetries.append( mp.Mirror( mp.Z ) ) if self.run_2D == False else None
-
+        symmetries = [ mp.Mirror( mp.X ) ]
+        symmetries.append( mp.Mirror( mp.Z ) ) if self.run_2D == False else None
 
         # Check if the user has specified an animation
         try:
@@ -311,7 +285,7 @@ class linear_gmot:
             self.__animate_func__( sx, sy )
             return 0
 
-        # Check if the user wants to build the enviroment for n2f analysis form an od life
+        # Check if the user wants to build the enviroment for n2f analysis form a file
         try:
             if kwarg["n2f_file"]:
                 n2f_only = True
@@ -336,6 +310,7 @@ class linear_gmot:
             return 0
 
 
+        ################################################################################
         # If no animation is requested, the a normal run will comence
         # The simulation must be run twice, once with no geomitry - in order to remove the incoming 
         # field data from the n2f monitor
@@ -346,11 +321,10 @@ class linear_gmot:
                                   boundary_layers=pml_layer,
                                   symmetries=symmetries )
 
-        # N2F regions have a top left and right point
-
+        # The near2far monitor is defined
         n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
 
-        # This is the incoming flux, it is idenical in shape to the n2f 
+        # This is the incoming flux, it is a square about where the gMOT will be
         flux_names = ['top','left','right','bot']
         incidence_flux_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=-1 )
 
@@ -372,7 +346,7 @@ class linear_gmot:
                                                   weight=1.0 )
                                            )
 
-        # First run
+        # Runs the no chip simulation
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
         # Get the incoming n2f data
