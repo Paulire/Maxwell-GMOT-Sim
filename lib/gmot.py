@@ -545,40 +545,38 @@ class linear_gmot:
             print( "get_diffraction_efficacy working on frequency " + str( count_frq ) + " of " + str( len( np.array( self.frq_values  )  ) ) + " (" + str( int( 100*count_frq/( len( np.array( self.frq_values  ) ) )  )) + "% done)" ) 
             count_frq += 1
 
-            # Calulates each maximas angl
+            # Calulates each maximas angle, also does the orders
             wvl = 1/self.frq_values[i]
-            diffraction_angles_mean = [ np.arcsin( j*wvl/self.period ) for j in range( -order, order+1 ) ]
+            diffraction_angles_mean = [ np.arcsin( j*wvl/self.period ) for j in range( -order-1, order+2 ) ]
             position_mean = self.ff_dist*np.tan( diffraction_angles_mean )
 
+            # The index postiotion 
+            mean_index = ( position_mean - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ).tolist()
+
             # Find the efficancy for each maxima at this wavelength
-            for j in range( len( diffraction_angles_mean ) ):
+            for j in range( 1, len( diffraction_angles_mean )-1 ):
                 # Manually find's the pynting vector and uses it's magnitude as a diffraction finder
-                Px = np.real( np.conj( self.ff_data['Ey'][:,i] )*self.ff_data['Hz'][:,i] - np.conj( self.ff_data['Ez'][:,i] )*self.ff_data['Hy'][:,i] ) 
                 Py = np.real( np.conj( self.ff_data['Ez'][:,i] )*self.ff_data['Hx'][:,i] - np.conj( self.ff_data['Ex'][:,i] )*self.ff_data['Hz'][:,i] ) 
-                Pz = np.real( np.conj( self.ff_data['Ex'][:,i] )*self.ff_data['Hy'][:,i] - np.conj( self.ff_data['Ey'][:,i] )*self.ff_data['Hx'][:,i] ) 
 
-                Pv = np.sqrt( Px**2 + Py**2 + Pz**2 )
                 field_magnitude = np.abs( Py )**2
-
-                # Find the position of this cenre
-                mean_index = int( ( position_mean[j] - self.ff_points[0] )/( self.ff_points[1] - self.ff_points[0] ) )
-
-                # This loop will find the minimum field to the right of the first order diffraction
-                # It records the index of the field at that point
-                current_index_right = mean_index
-                while field_magnitude[ current_index_right ]/field_magnitude[ mean_index ] > 0.01:
-                    current_index_right +=1
-                current_index_left = mean_index
-                while field_magnitude[ current_index_left ]/field_magnitude[ mean_index ] > 0.01:
-                    current_index_left -= 1
                 
-                # Determine the width of the maxima and it's mean position
-                maxima_width = self.ff_points[ current_index_right ] - self.ff_points[ current_index_left ]
-                maxima_mean = (self.ff_points[ current_index_right ] + self.ff_points[ current_index_left ])/2
+                # Finds the lower and upper limit of the diffraction order (half way to the next),
+                # If there is no diffraction order next to the the current order (this will be value nan), then it will just do
+                # all points to that side of the maxima are included in the sum
+                try:
+                    lower_limit = int( 0.5*( mean_index[j-1] + mean_index[j] ) ) if np.isnan( mean_index[j-1 ] ) != True else 0
+                    upper_limit = int( 0.5*( mean_index[j+1] + mean_index[j] ) ) if np.isnan( mean_index[j+1] ) != True else -1
 
-                # Calculate flux
-                self.diff_efficacy[j,i] =  np.sum( Py[ current_index_left:current_index_right ] )*( self.ff_points[1] - self.ff_points[0] )
-                #self.diff_efficacy[j,i] =  np.sum( Py[ : ] )*( self.ff_points[1] - self.ff_points[0] )
+                    if lower_limit < 0:
+                        lower_limit = 0
+                    if upper_limit > len( self.ff_points ):
+                        upper_limit = len( self.ff_points )
+                except:
+                    lower_limit = 0
+                    upper_limit = -1
+
+                # Calculate flux for this maxima region
+                self.diff_efficacy[j-1,i] =  np.sum( Py[ lower_limit:upper_limit ] )*( self.ff_points[1] - self.ff_points[0] )
                 
         # Convert to effiancy
         self.diff_efficacy = self.diff_efficacy/self.incidence_flux_data["top"]
@@ -741,7 +739,6 @@ class linear_gmot:
             #axs.plot( self.ff_points,  Pv_norm_abs , '-k' )
             axs.plot( self.ff_points, Py/np.max( Py ), '-k' )
         axs.tick_params( direction="in" )
-        axs.grid( which="both" )
         axs.set_ylabel( "Poynting vector", size="x-large")
         axs.set_xlabel( "Angle (rad)", size="x-large") if x_axis == "angle" else axs.set_xlabel( "Far field position (μm)", size="x-large")
 
