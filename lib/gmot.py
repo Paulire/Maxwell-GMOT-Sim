@@ -430,6 +430,8 @@ class linear_gmot:
                 output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
 
         self.sim.run(mp.at_every(0.5,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
+
+        animate.to_mp4( 6, 'anm.mp4' )
         
     def __plot_func__( self, sx, sy, **kwarg ):
         self.sim.run(until=10)
@@ -815,7 +817,7 @@ class linear_gmot:
 
 
         plt.tight_layout()
-        if fname == None:
+        if fname != None:
             plt.savefig( fname, dpi=300 )
         else:
             plt.show()
