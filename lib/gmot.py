@@ -510,6 +510,7 @@ class linear_gmot:
         plt.tick_params( which='minor', length=2, direction='in'  )
         #plt.savefig( "near_far_flux_v2.pdf", dpi=300 )
         plt.show()
+        plt.clf()
 
         return 0
 
@@ -608,6 +609,7 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
+        plt.clf()
 
         return 0
 
@@ -743,6 +745,7 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
+        plt.clf()
 
         return 0
 
