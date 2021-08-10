@@ -285,6 +285,20 @@ class linear_gmot:
             self.__animate_func__( sx, sy )
             return 0
 
+        # Checks if a settup plot is to be made
+        try:
+            if kwarg["plot_settup"] == True:
+                plot_settup = True
+            else:
+                plot_settup == False
+        except:
+            plot_settup = False
+        # If so, then run the animation
+        if plot_settup == True:
+            self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
+            self.__plot_func__( sx, sy )
+            return 0
+
         # Check if the user wants to build the enviroment for n2f analysis form a file
         try:
             if kwarg["n2f_file"]:
@@ -417,7 +431,9 @@ class linear_gmot:
 
         self.sim.run(mp.at_every(0.5,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
         
-        animate.to_mp4( 6, 'anm.mp4' )
+    def __plot_func__( self, sx, sy, **kwarg ):
+        self.sim.run(until=10)
+        
         self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
