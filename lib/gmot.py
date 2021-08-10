@@ -205,13 +205,12 @@ class linear_gmot:
     # This is called to run the simulation
     def run( self, **kwarg ):
         #Frequncy values and ranges are defined here
-        frq = 1/self.wvl
         wvl_max = self.wvl + 0.5*self.dwvl
         wvl_min = self.wvl - 0.5*self.dwvl
         frq_max = 1/wvl_min
         frq_min = 1/wvl_max
         dfrq = frq_max - frq_min
-        frq_cen = 0.5*( frq_max + frq_min )
+        frq = 0.5*( frq_max + frq_min )
 
         ## Build cell ###
         # chip size - the size of the chip in the x/y direction
@@ -451,7 +450,7 @@ class linear_gmot:
         
         # Get the size of the far field and calculate is's resolution in pixles per micron
         ff_size = 2*abs(ff_dist)*np.tan( theta )
-        ff_res = ff_pnt/ff_size
+        ff_res = ( ff_pnt+0.5)/ff_size
 
         # Generate the far field data
         self.ff_data = self.sim.get_farfields( self.n2f_obj,
