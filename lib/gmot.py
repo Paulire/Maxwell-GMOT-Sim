@@ -68,6 +68,7 @@ class linear_gmot:
             self.res = int( sim_data["res"] )                                   # Simulation resolution
             self.frq_values = np.array( sim_data["frq_values"] )                # Stores frequncy's
             self.run_2D = bool( sim_data["run_2D"] )                            # 3D or 2D simulation (True=2D)
+            self.chip_thickness = float( sim_data["chip_thickness"] )
 
             # Get far field data from loaded file
             self.ff_points = np.array( sim_data['points'] )                     # Position in far field (µm)
@@ -138,6 +139,11 @@ class linear_gmot:
             except:
                 self.nwvl = 11
 
+            try:
+                self.chip_thickness = kwarg["chip_thickness"]
+            except:
+                self.chip_thickness = 1
+
         # Simulation greating builder
         try:
             self.greating_func = kwarg["greating_func"]
@@ -201,6 +207,11 @@ class linear_gmot:
             raise TypeError("'nwvl' must be an int")
         elif self.polarization == None:
             raise ValueError("'polarization' must be either 'X', 'Y', 'LEFT' or 'RIGHT'")
+        elif type( self.chip_thickness ) != float:
+            try:
+                self.chip_thickness = float( self.chip_thickness )
+            except:
+                raise TypeError("'chip_thickness' must be float")
 
     # This is called to run the simulation
     def run( self, **kwarg ):
@@ -223,17 +234,16 @@ class linear_gmot:
         chip_size_x = self.num_period*self.period                # Chip length in x
         chip_size_z = 0 if self.run_2D == True else 1            # Chip length in z   
         padding = 0                                              # Spaceing between the PML and chip can be set   
-        plate_thickness = 1                                      # Thickness of the chip
 
         # Defines cell geomitry
         sx = dpml + padding + chip_size_x + padding + dpml       # Length of the cell in x
-        sy = dpml + 2*padding + plate_thickness + self.grating_height + frq*5.0 + dpml # same but in y
+        sy = dpml + 2*padding + self.chip_thickness + self.grating_height + frq*5.0 + dpml # same but in y
         sz = 0 if self.run_2D == True else chip_size_z + 2*padding + 2*dpml # and z
         cell = mp.Vector3( sx, sy, sz )                          # Vector to store the cell dimentions
         pml_layer = [ mp.PML( thickness=dpml ) ]                 # PML system for Meep
 
         # Near2Far regions are defined here aswell as positioning
-        n2f_y_pos = -0.5*sy + dpml + padding + 1.00*( plate_thickness + self.grating_height ) 
+        n2f_y_pos = -0.5*sy + dpml + padding + 1.01*( self.chip_thickness + self.grating_height ) 
         n2f_point = mp.Vector3( y=n2f_y_pos )
 
         # Defines the near2far region, a single line aross the top of the chip
@@ -250,14 +260,14 @@ class linear_gmot:
                               size=mp.Vector3( chip_size_x*0.98, z=chip_size_z ) ) ]
 
         # The greating base chip
-        geometry = [ mp.Block( size=mp.Vector3( chip_size_x, plate_thickness, chip_size_z),
-                               center=mp.Vector3( y=-0.5*( sy - plate_thickness ) + dpml + padding ),
+        geometry = [ mp.Block( size=mp.Vector3( chip_size_x, self.chip_thickness, chip_size_z),
+                               center=mp.Vector3( y=-0.5*( sy - self.chip_thickness ) + dpml + padding ),
                                material=self.grating_material ) ]
 
         # The postiontions of the chip is defined here for the user to build around
         x_cen = np.linspace( -0.5*chip_size_x, 0.5*chip_size_x, self.num_period, endpoint=False)
         x_cen += 0.5*(x_cen[1] - x_cen[0])
-        y_cen = -0.5*sy + dpml + plate_thickness + padding
+        y_cen = -0.5*sy + dpml + self.chip_thickness + padding
 
         # The gratings are built here, the grating function is called for each period
         for i in range( self.num_period ):
@@ -317,7 +327,7 @@ class linear_gmot:
                                       boundary_layers=pml_layer,
                                       symmetries=symmetries )
 
-            n2f_point = mp.Vector3( y=-0.5*sy + dpml + plate_thickness + 1.10*self.grating_height )
+            n2f_point = mp.Vector3( y=-0.5*sy + dpml + self.chip_thickness + 1.10*self.grating_height )
             self.n2f_obj = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
             self.sim.load_near2far( kwarg["n2f_file"], self.n2f_obj )
             
@@ -529,6 +539,10 @@ class linear_gmot:
         elif order < 0:
             return ValueError("'order must be greater than or equle to zero'")
 
+
+        # Retreaves the frequncy values for the far fields
+        index = np.abs( self.frq_values - 1/self.wvl ).argmin()
+
         # Diffraction efficacies are held hear for each frequncy
         # 0 = order zero, 1 = order one, 2 = order minus one
         self.diff_efficacy = np.zeros( ( 3, len( np.array( self.frq_values  ) ) ) )
@@ -692,7 +706,8 @@ class linear_gmot:
             "run_2D": int( self.run_2D ),
             "diff_efficacy": self.diff_efficacy.tolist(),
             "ff_dist": self.ff_dist,
-            "frq_values": self.frq_values.tolist() } )
+            "frq_values": self.frq_values.tolist(),
+            "chip_thickness": self.chip_thickness } )
 
         output_data.update( { key:data.tolist() for key,data in self.flux_box_data.items() } )
         output_data.update( { ( 'in_' + key ):data.tolist() for key,data in self.incidence_flux_data.items() } )
