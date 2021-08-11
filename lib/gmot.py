@@ -233,7 +233,7 @@ class linear_gmot:
         pml_layer = [ mp.PML( thickness=dpml ) ]                 # PML system for Meep
 
         # Near2Far regions are defined here aswell as positioning
-        n2f_y_pos = -0.5*sy + dpml + padding + 1.0*( plate_thickness + self.grating_height ) 
+        n2f_y_pos = -0.5*sy + dpml + padding + 1.00*( plate_thickness + self.grating_height ) 
         n2f_point = mp.Vector3( y=n2f_y_pos )
 
         # Defines the near2far region, a single line aross the top of the chip
@@ -295,6 +295,7 @@ class linear_gmot:
         # If so, then run the animation
         if plot_settup == True:
             self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
+            n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
             self.__plot_func__( sx, sy )
             return 0
 
@@ -414,6 +415,12 @@ class linear_gmot:
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
+        """self.sim.plot2D(fields=mp.Ez,
+                        field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
+                        boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
+                        output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+        plt.show()"""
+
     
         return 0
 
@@ -426,11 +433,12 @@ class linear_gmot:
                 boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                 eps_parameters={'cmap':'binary'},
                 #realtime=True,
-                output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+                output_plane=mp.Volume( size=mp.Vector3( 2, 0.8 ), center=mp.Vector3( y=-1.8 ) ) )
+                #output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
 
-        self.sim.run(mp.at_every(0.5,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
+        self.sim.run(mp.at_every(0.1,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
 
-        animate.to_mp4( 6, 'anm.mp4' )
+        animate.to_mp4( 10, 'anm.mp4' )
         
     def __plot_func__( self, sx, sy, **kwarg ):
         self.sim.run(until=10)
@@ -520,10 +528,6 @@ class linear_gmot:
             return TypeError( "'order' must be an int" )
         elif order < 0:
             return ValueError("'order must be greater than or equle to zero'")
-
-
-        # Retreaves the frequncy values for the far fields
-        index = np.abs( self.frq_values - 1/self.wvl ).argmin()
 
         # Diffraction efficacies are held hear for each frequncy
         # 0 = order zero, 1 = order one, 2 = order minus one
