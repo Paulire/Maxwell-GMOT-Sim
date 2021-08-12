@@ -291,7 +291,12 @@ class linear_gmot:
         # If so, then run the animation
         if animate == True:
             self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
-            self.__animate_func__( sx, sy )
+
+            # Try saving to file if fname is defined else plot to screen
+            try:
+                self.__animate_func__( sx, sy, fname=kwarg["fname"] )
+            except:
+                self.__animate_func__( sx, sy )
             return 0
 
         # Checks if a settup plot is to be made
@@ -306,7 +311,12 @@ class linear_gmot:
         if plot_settup == True:
             self.sim = mp.Simulation( cell, self.res, geometry, source, boundary_layers=pml_layer, symmetries=symmetries )
             n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
-            self.__plot_func__( sx, sy )
+
+            # Try saving to file if fname is defined else plot to screen
+            try:
+                self.__plot_func__( sx, sy, fname=kwarg["fname"] )
+            except:
+                self.__plot_func__( sx, sy )
             return 0
 
         # Check if the user wants to build the enviroment for n2f analysis form a file
@@ -435,7 +445,7 @@ class linear_gmot:
         return 0
 
     # The function builds the animation
-    def __animate_func__( self, sx, sy, **kwarg ):
+    def __animate_func__( self, sx, sy, fname=None, **kwarg ):
         animate = mp.Animate2D(self.sim,
                 fields=mp.Ez,
                 normilize=True,
@@ -446,18 +456,30 @@ class linear_gmot:
                 output_plane=mp.Volume( size=mp.Vector3( 2, 0.8 ), center=mp.Vector3( y=-1.8 ) ) )
                 #output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
 
-        self.sim.run(mp.at_every(0.1,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
+        self.sim.run(mp.at_every(0.6,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
 
-        animate.to_mp4( 10, 'anm.mp4' )
+        if fname == None:
+            animate.to_mp4( 6, 'anm.mp4' )
+        elif type( fname ) == None:
+            raise TypeError( "'fname' must be a string" )
+        else:
+            animate.to_mp4( 6, fname )
+
+        return 0
         
-    def __plot_func__( self, sx, sy, **kwarg ):
+    def __plot_func__( self, sx, sy, fname=None, **kwarg ):
         self.sim.run(until=10)
         
         self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                         output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()
+        if fname == None:
+            plt.show()
+        elif type( fname ) != str:
+            raise TypeError( "'fname' must be a string" )
+        else:
+            plt.savefig( fname, dpi=150 )
 
     # Users invoke this request computaion of the far fields
     def get_far_field( self, ff_dist=5e3, ff_pnt=500, theta=np.pi/4, **kwarg ):
@@ -842,4 +864,22 @@ class linear_gmot:
             plt.savefig( fname, dpi=300 )
         else:
             plt.show()
+
+        plt.clf()
+
+    def default_output( self, fname=None, include_animation=False, include_settup=False, **kwarg ):
+        if fname == None:
+            self.plot_diffraction_efficacy( plot_total=True, fname=make )
+            self.plot_far_field( fname=make, wvl=self.wvl )
+            self.plot_flux_box_data( fname=make )
+            if include_animation == True:
+                self.run( animation=True )
+        elif type( fname ) != str:
+            raise TypeError( "'fname' must be a string" )
+        else:
+            self.plot_diffraction_efficacy( plot_total=True, fname=( fname+"_ef.pdf" ) )
+            self.plot_far_field( fname=( fname+"_ff.pdf" ), wvl=self.wvl )
+            self.plot_flux_box_data( fname=( fname+"_fb.pdf" ) )
+            if include_animation == True:
+                self.run( animation=True, fname=fname )
 
