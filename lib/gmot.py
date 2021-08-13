@@ -6,6 +6,23 @@ from sys import exit
 from scipy import signal
 import json
 
+def silicon_metal_coated( self, cen, size_x, size_y ):
+    slit_length = self.period - self.grating_width
+
+    geo = [ mp.Block( size=mp.Vector3( slit_length, self.grating_height ),
+                      center=mp.Vector3( cen[0], cen[1] + self.grating_height/2  ),
+                      material=mat.cSi ),
+            mp.Block( size=mp.Vector3( slit_length, self.coating_height ),
+                      center=mp.Vector3( cen[0], cen[1]+self.grating_height ),
+                      material=self.coating_mat ),
+            mp.Block( size=mp.Vector3( 0.5*self.grating_width, self.coating_height ),
+                      center=mp.Vector3( cen[0] + 0.5*self.period - 0.25*self.grating_width, cen[1] ),
+                      material=self.coating_mat ),
+            mp.Block( size=mp.Vector3( 0.5*self.grating_width, self.coating_height ),
+                      center=mp.Vector3( cen[0] - 0.5*self.period + 0.25*self.grating_width, cen[1] ),
+                      material=self.coating_mat )]
+    return geo
+
 def __default_greating__( self, cen, size_x, size_z ):
     slit_len = self.period - self.grating_width
 
@@ -49,6 +66,7 @@ class linear_gmot:
                   period=None,
                   grating_width=None,
                   grating_height=None,
+                  coating_height=None,
                   fname=None,
                   **kwarg ):
 
@@ -69,6 +87,7 @@ class linear_gmot:
             self.frq_values = np.array( sim_data["frq_values"] )                # Stores frequncy's
             self.run_2D = bool( sim_data["run_2D"] )                            # 3D or 2D simulation (True=2D)
             self.chip_thickness = float( sim_data["chip_thickness"] )
+            self.coating_height = float( sim_data["coating_height"] )
 
             # Get far field data from loaded file
             self.ff_points = np.array( sim_data['points'] )                     # Position in far field (µm)
@@ -90,7 +109,8 @@ class linear_gmot:
             self.num_period = int( num_period )              # Number of gratings
             self.period = float( period )                      # Size of grating
             self.grating_width = float( grating_width )        # Width of the deep part of the grating
-            self.grating_height = float( grating_height )      # The hight of the grating
+            self.grating_height = float( grating_height )      # The hight of the grating (etch depth)
+            self.coating_height = float( coating_height )      # Metal coating height
 
             # The simulation object will be here and can be accessed anywhere
             self.ff_data = None
@@ -143,6 +163,11 @@ class linear_gmot:
                 self.chip_thickness = kwarg["chip_thickness"]
             except:
                 self.chip_thickness = 1
+            
+            try:
+                self.coating_mat = kwarg["coating_matirial"]
+            except:
+                self.coating_mat = mat.Al
 
         # Simulation greating builder
         try:
@@ -212,6 +237,8 @@ class linear_gmot:
                 self.chip_thickness = float( self.chip_thickness )
             except:
                 raise TypeError("'chip_thickness' must be float")
+        elif self.coating_height < 0:
+            raise ValueError("'coating_height' must be greater than or equle to zero")
 
     # This is called to run the simulation
     def run( self, **kwarg ):
@@ -237,13 +264,13 @@ class linear_gmot:
 
         # Defines cell geomitry
         sx = dpml + padding + chip_size_x + padding + dpml       # Length of the cell in x
-        sy = dpml + 2*padding + self.chip_thickness + self.grating_height + frq*5.0 + dpml # same but in y
+        sy = dpml + 2*padding + self.chip_thickness + self.grating_height + self.coating_height + frq*5.0 + dpml # same but in y
         sz = 0 if self.run_2D == True else chip_size_z + 2*padding + 2*dpml # and z
         cell = mp.Vector3( sx, sy, sz )                          # Vector to store the cell dimentions
         pml_layer = [ mp.PML( thickness=dpml ) ]                 # PML system for Meep
 
         # Near2Far regions are defined here aswell as positioning
-        n2f_y_pos = -0.5*sy + dpml + padding + 1.01*( self.chip_thickness + self.grating_height ) 
+        n2f_y_pos = -0.5*sy + dpml + padding + 1.01*( self.chip_thickness + self.grating_height + self.coating_height ) 
         n2f_point = mp.Vector3( y=n2f_y_pos )
 
         # Defines the near2far region, a single line aross the top of the chip
@@ -252,6 +279,22 @@ class linear_gmot:
                                             direction=mp.Y, weight=1 )
 
         # Flux regions are deffined here
+        # This is the incoming flux, it is a square about where the gMOT will be
+        flux_region = [ None for i in range(4) ]
+        flux_names = ['top','left','right','bot']
+
+        flux_region[0] = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=-1 )
+        flux_region[1] = mp.FluxRegion( center=mp.Vector3( -0.5*( sx ) + dpml + padding ,
+                                                            0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding + self.coating_height  ) ) ),
+                                        size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding + self.coating_height ) ),
+                                        weight=1.0 )
+        flux_region[2] = mp.FluxRegion( center=mp.Vector3( 0.5*( sx ) - dpml - padding ,
+                                                           0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding + self.coating_height ) ) ),
+                                        size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding ) ),
+                                        weight=-1.0 )
+        flux_region[3] = mp.FluxRegion( center=mp.Vector3( y=0.5*( - sy ) + dpml + padding ),
+                                        size=mp.Vector3(  chip_size_x ),
+                                        weight=1.0 )
 
         # Create source
         source = [ mp.Source( mp.GaussianSource( wavelength=self.wvl, fwidth=self.dwvl, is_integrated=True ),
@@ -358,27 +401,12 @@ class linear_gmot:
         # The near2far monitor is defined
         n2f_obj_no_chip = self.sim.add_near2far( frq, dfrq, self.nwvl, n2f_region_cen)
 
-        # This is the incoming flux, it is a square about where the gMOT will be
-        flux_names = ['top','left','right','bot']
-        incidence_flux_region = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=-1 )
 
         # Extra incoming flux to be used by the flux box (either side of the chip)
-        self.incidence_flux_obj[0] = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
-        self.incidence_flux_obj[1] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
-                                                  center=mp.Vector3( -0.5*( sx ) + dpml + padding , 0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding  ) ) ),
-                                                  size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding) ),
-                                                  weight=1.0 )
-                                           )
-        self.incidence_flux_obj[2] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
-                                                  center=mp.Vector3( 0.5*( sx ) - dpml - padding , 0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding ) ) ),
-                                                  size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding ) ),
-                                                  weight=-1.0 )
-                                           )
-        self.incidence_flux_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
-                                                  center=mp.Vector3( y=0.5*( - sy ) + dpml + padding ),
-                                                  size=mp.Vector3(  chip_size_x ),
-                                                  weight=1.0 )
-                                           )
+        self.incidence_flux_obj[0] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[0] )
+        self.incidence_flux_obj[1] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[1] ) 
+        self.incidence_flux_obj[2] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[2] ) 
+        self.incidence_flux_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[3] ) 
 
         # Runs the no chip simulation
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
@@ -409,23 +437,10 @@ class linear_gmot:
         # The the two after are the left and right side fluxes and the last is the back flux, the side
         # and back fluxes are placed between the PML and chip
         # Adds the flux box object to the simulation
-        self.flux_box_obj[0] = self.sim.add_flux( frq, dfrq, self.nwvl, incidence_flux_region )
-        self.flux_box_obj[1] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
-                                                  center=mp.Vector3( -0.5*( sx  ) + dpml + padding, 0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding ) ) ),
-                                                  size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding ) ),
-                                                  weight=1.0 )
-                                           )
-        self.flux_box_obj[2] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
-                                                  center=mp.Vector3( 0.5*( sx ) - dpml - padding , 0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding ) ) ),
-                                                  size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding ) ),
-                                                  weight=-1.0 )
-                                           )
-        self.flux_box_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, mp.FluxRegion(
-                                                  center=mp.Vector3( y=0.5*( -sy ) + dpml + padding ),
-                                                  size=mp.Vector3(  chip_size_x ),
-                                                  weight=1.0 )
-                                           )
-
+        self.flux_box_obj[0] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[0] )
+        self.flux_box_obj[1] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[1] )
+        self.flux_box_obj[2] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[2] )
+        self.flux_box_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[3] )
 
         # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
@@ -453,8 +468,8 @@ class linear_gmot:
                 boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                 eps_parameters={'cmap':'binary'},
                 #realtime=True,
-                output_plane=mp.Volume( size=mp.Vector3( 2, 0.8 ), center=mp.Vector3( y=-1.8 ) ) )
-                #output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
+                #output_plane=mp.Volume( size=mp.Vector3( 2, 0.8 ), center=mp.Vector3( y=-1.8 ) ) )
+                output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
 
         self.sim.run(mp.at_every(0.6,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
 
@@ -729,7 +744,8 @@ class linear_gmot:
             "diff_efficacy": self.diff_efficacy.tolist(),
             "ff_dist": self.ff_dist,
             "frq_values": self.frq_values.tolist(),
-            "chip_thickness": self.chip_thickness } )
+            "chip_thickness": self.chip_thickness,
+            "coating_height": self.coating_height } )
 
         output_data.update( { key:data.tolist() for key,data in self.flux_box_data.items() } )
         output_data.update( { ( 'in_' + key ):data.tolist() for key,data in self.incidence_flux_data.items() } )
@@ -881,5 +897,7 @@ class linear_gmot:
             self.plot_far_field( fname=( fname+"_ff.pdf" ), wvl=self.wvl )
             self.plot_flux_box_data( fname=( fname+"_fb.pdf" ) )
             if include_animation == True:
-                self.run( animation=True, fname=fname )
+                self.run( animate=True, fname=fname+".mp4" )
+            if include_settup == True:
+                self.run( plot_settup=True, fname=fname+".pdf" )
 
