@@ -13,13 +13,13 @@ def silicon_metal_coated( self, cen, size_x, size_y ):
                       center=mp.Vector3( cen[0], cen[1] + self.grating_height/2  ),
                       material=mat.cSi ),
             mp.Block( size=mp.Vector3( slit_length, self.coating_height ),
-                      center=mp.Vector3( cen[0], cen[1]+self.grating_height ),
+                      center=mp.Vector3( cen[0], cen[1]+self.grating_height + 0.5*self.coating_height ),
                       material=self.coating_mat ),
             mp.Block( size=mp.Vector3( 0.5*self.grating_width, self.coating_height ),
-                      center=mp.Vector3( cen[0] + 0.5*self.period - 0.25*self.grating_width, cen[1] ),
+                      center=mp.Vector3( cen[0] + 0.5*self.period - 0.25*self.grating_width, cen[1] + 0.5*self.coating_height),
                       material=self.coating_mat ),
             mp.Block( size=mp.Vector3( 0.5*self.grating_width, self.coating_height ),
-                      center=mp.Vector3( cen[0] - 0.5*self.period + 0.25*self.grating_width, cen[1] ),
+                      center=mp.Vector3( cen[0] - 0.5*self.period + 0.25*self.grating_width, cen[1] + 0.5*self.coating_height ),
                       material=self.coating_mat )]
     return geo
 
@@ -296,6 +296,27 @@ class linear_gmot:
                                         size=mp.Vector3(  chip_size_x ),
                                         weight=1.0 )
 
+
+        # Create the mesh flux cuttof postions
+        mesh_const = -sx/2 + dpml + padding
+        mesh_period = np.ceil( self.num_period/2 )          # The mesh is put onto this period (about half way rounded)
+        mesh_start = mesh_const self.period*( mesh_period ) - 0.5*self.grating_width # The start longitudanal postion for the monitors
+        mesh_end = mesh_const + self.period*( mesh_period + 1) -0.5*self.grating_width # The end longitudinal postion for the monitors
+        mesh_mid = mesh_const + self.period*( mesh_period ) + 0.5*self.grating_width
+        mesh_bot = -0.5*sy + dpml + padding + self.chip_thickness + self.coating_height
+        mesh_top = -0.5*sy + dpml + padding + self.chip_thickness + self.grating_height
+
+        # MAKE 
+        NUM_H
+
+        # Defines the cenre points of each horizontal flux positon (this is for the flux etched point)
+        mesh_pos_h_etch = np.linspace( mesh_period,mesh_mid, NUM_H, endpoint=False )
+        mesh_pos_h_etch += 0.5*( mesh_pos_h_etch[1] - mesh_pos_h_etch[0] )
+        
+        # For the etched but the vertial
+        mesh_pos_v_etch = np.linspace( mesh_bot, mesh_top, NUM_V, endpoint=False )
+        mesh_pos_v_etch += 0.5*( mesh_pos_v_etch[1] - mesh_pos_v_etch[0] )
+
         # Create source
         source = [ mp.Source( mp.GaussianSource( wavelength=self.wvl, fwidth=self.dwvl, is_integrated=True ),
                               component=self.polarization, 
@@ -442,19 +463,20 @@ class linear_gmot:
         self.flux_box_obj[2] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[2] )
         self.flux_box_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[3] )
 
+
         # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
         # Get the net flux data
-        self.flux_box_data = { flux_names[i]:np.array( mp.get_fluxes( self.flux_box_obj[i]  ) ) for i in range( len( self.flux_box_obj ) ) }
+        #self.flux_box_data = { flux_names[i]:np.array( mp.get_fluxes( self.flux_box_obj[i]  ) ) for i in range( len( self.flux_box_obj ) ) }
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
-        """self.sim.plot2D(fields=mp.Ez,
+        self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                         output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()"""
+        plt.show()
 
     
         return 0
@@ -890,6 +912,8 @@ class linear_gmot:
             self.plot_flux_box_data( fname=make )
             if include_animation == True:
                 self.run( animation=True )
+            if include_settup == True:
+                self.run( plot_settup=True )
         elif type( fname ) != str:
             raise TypeError( "'fname' must be a string" )
         else:
