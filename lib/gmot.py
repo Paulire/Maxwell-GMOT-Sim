@@ -449,12 +449,12 @@ class linear_gmot:
         self.flux_box_data = { flux_names[i]:np.array( mp.get_fluxes( self.flux_box_obj[i]  ) ) for i in range( len( self.flux_box_obj ) ) }
 
         # Store the flux frequncies
-        self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
+        """self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
         self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                         output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()
+        plt.show()"""
 
     
         return 0
