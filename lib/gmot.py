@@ -297,25 +297,56 @@ class linear_gmot:
                                         weight=1.0 )
 
 
-        # Create the mesh flux cuttof postions
+        # Create the mesh flux cuttof postions, walled means inisde the grating, etched means inside the etching (between walls)
         mesh_const = -sx/2 + dpml + padding
         mesh_period = np.ceil( self.num_period/2 )          # The mesh is put onto this period (about half way rounded)
-        mesh_start = mesh_const self.period*( mesh_period ) - 0.5*self.grating_width # The start longitudanal postion for the monitors
+        mesh_start = mesh_const + self.period*( mesh_period ) - 0.5*self.grating_width # The start longitudanal postion for the monitors
         mesh_end = mesh_const + self.period*( mesh_period + 1) -0.5*self.grating_width # The end longitudinal postion for the monitors
-        mesh_mid = mesh_const + self.period*( mesh_period ) + 0.5*self.grating_width
-        mesh_bot = -0.5*sy + dpml + padding + self.chip_thickness + self.coating_height
-        mesh_top = -0.5*sy + dpml + padding + self.chip_thickness + self.grating_height
+        mesh_mid = mesh_const + self.period*( mesh_period ) + 0.5*self.grating_width # The middle edge of the etching
+        mesh_bot = -0.5*sy + dpml + padding + self.chip_thickness + self.coating_height # Bottom of the mesh limit
+        mesh_top = -0.5*sy + dpml + padding + self.chip_thickness + 2*self.coating_height + self.grating_height # Top mesh limit
 
         # MAKE 
-        NUM_H
+        NUM_H = 10
 
-        # Defines the cenre points of each horizontal flux positon (this is for the flux etched point)
-        mesh_pos_h_etch = np.linspace( mesh_period,mesh_mid, NUM_H, endpoint=False )
+        # Defines the cenre points of each horizontal flux positon
+        mesh_pos_h_etch = np.linspace( mesh_start,mesh_mid, NUM_H, endpoint=False ) # Etched horizontal position
         mesh_pos_h_etch += 0.5*( mesh_pos_h_etch[1] - mesh_pos_h_etch[0] )
+        mesh_pos_h_wall = np.linspace( mesh_mid,mesh_end, NUM_H, endpoint=False ) # Walled horizontal postion
+        mesh_pos_h_wall += 0.5*( mesh_pos_h_wall[1] - mesh_pos_h_wall[0] )
         
-        # For the etched but the vertial
-        mesh_pos_v_etch = np.linspace( mesh_bot, mesh_top, NUM_V, endpoint=False )
-        mesh_pos_v_etch += 0.5*( mesh_pos_v_etch[1] - mesh_pos_v_etch[0] )
+        # The vetical postions of fluxes (etched and walled)
+        mesh_pos_v = np.linspace( mesh_bot, mesh_top, NUM_H, endpoint=False )
+        mesh_pos_v += 0.5*( mesh_pos_v[1] - mesh_pos_v[0] )
+
+        # Etched points flux regions, the 2 first diemtions define if it's horizontal or vertacal flux
+        etched_flux_mesh_region = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        walled_flux_mesh_region = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        h_length_etch = ( mesh_mid - mesh_start )/NUM_H     # Flux monitor horizontal length in etching
+        v_length_etch = ( mesh_top - mesh_bot )/NUM_H       # " vertical length in etching
+        h_length_wall = ( mesh_end - mesh_mid )/NUM_H     # " horizontal length in the grating wall
+        v_length_wall = ( mesh_top - mesh_bot )/NUM_H       # " vetrical length in the grating wall
+        
+        # Repeat for each row
+        for i in range( NUM_H ):
+            # Vertiacl flux in the etching
+            etched_flux_mesh_region[0][i][:] = np.array( [ mp.FluxRegion( center=mp.Vector3( mesh_pos_h_etch[j], mesh_pos_v[i] ),
+                                                                        size=mp.Vector3( x=h_length_etch ), 
+                                                                        direction=mp.Y ) for j in range( len( mesh_pos_h_etch ) )] )
+            # Horezontal flux in the etching
+            etched_flux_mesh_region[1][i][:] = np.array( [ mp.FluxRegion( center=mp.Vector3( mesh_pos_h_etch[j], mesh_pos_v[i] ),
+                                                                        size=mp.Vector3( y=v_length_etch ),
+                                                                        direction=mp.X) for j in range( len( mesh_pos_h_etch ) ) ] )
+
+            # Vertiacl flux in the walling
+            walled_flux_mesh_region[0][i][:] = np.array( [ mp.FluxRegion( center=mp.Vector3( mesh_pos_h_wall[j], mesh_pos_v[i] ),
+                                                                        size=mp.Vector3( x=h_length_wall ), 
+                                                                        direction=mp.Y ) for j in range( len( mesh_pos_h_wall ) )] )
+            # Horezontal flux in the walling
+            walled_flux_mesh_region[1][i][:] = np.array( [ mp.FluxRegion( center=mp.Vector3( mesh_pos_h_wall[j], mesh_pos_v[i] ),
+                                                                        size=mp.Vector3( y=v_length_wall ),
+                                                                        direction=mp.X) for j in range( len( mesh_pos_h_wall ) ) ] )
+
 
         # Create source
         source = [ mp.Source( mp.GaussianSource( wavelength=self.wvl, fwidth=self.dwvl, is_integrated=True ),
@@ -429,6 +460,12 @@ class linear_gmot:
         self.incidence_flux_obj[2] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[2] ) 
         self.incidence_flux_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[3] ) 
 
+        # Set up the flux mesh objects
+        null_etched_flux_mesh_obj = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        for i in range( NUM_H ):
+            null_etched_flux_mesh_obj[0][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
+            null_etched_flux_mesh_obj[1][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
+
         # Runs the no chip simulation
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
@@ -438,7 +475,13 @@ class linear_gmot:
         # Get the side incidence flux data and save
         self.incidence_flux_data = { flux_names[i]: np.array( mp.get_fluxes( self.incidence_flux_obj[i] ) ) for i in range( len( flux_names ) ) }
 
-        
+        # Get incdence etch flux mesh data
+        null_etched_flux_mesh_data = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        for i in range( NUM_H ): # for each row
+            for j in range( NUM_H ): # for each colom
+                null_etched_flux_mesh_data[0][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[0][i][j] ) # Vertical flux
+                null_etched_flux_mesh_data[1][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[1][i][j] ) # Horizontal flux
+
         self.sim.reset_meep()
 
         # Second run with the chip
@@ -464,6 +507,24 @@ class linear_gmot:
         self.flux_box_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[3] )
 
 
+        # Set up the flux mesh objects
+        etched_flux_mesh_obj = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        walled_flux_mesh_obj = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        for i in range( NUM_H ):
+            # Add eched flux object
+            etched_flux_mesh_obj[0][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
+            etched_flux_mesh_obj[1][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
+            
+
+            walled_flux_mesh_obj[0][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, walled_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
+            walled_flux_mesh_obj[1][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, walled_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
+
+        # Minus incidence flux for etched mesh
+        for i in range( NUM_H ):
+            for j in range( NUM_H ):
+                etched_flux_mesh_obj[0][i][j] = self.sim.load_minus_flux_data( etched_flux_mesh_obj[0][i][j], null_etched_flux_mesh_data[0][i][j] )
+                etched_flux_mesh_obj[1][i][j] = self.sim.load_minus_flux_data( etched_flux_mesh_obj[1][i][j], null_etched_flux_mesh_data[1][i][j] )
+
         # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
@@ -472,11 +533,11 @@ class linear_gmot:
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
-        self.sim.plot2D(fields=mp.Ez,
+        """self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                         output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()
+        plt.show()"""
 
     
         return 0
