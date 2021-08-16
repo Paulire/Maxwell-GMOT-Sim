@@ -512,32 +512,41 @@ class linear_gmot:
         walled_flux_mesh_obj = np.zeros( (2,NUM_H,NUM_H) ).tolist()
         for i in range( NUM_H ):
             # Add eched flux object
-            etched_flux_mesh_obj[0][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
-            etched_flux_mesh_obj[1][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
-            
-
-            walled_flux_mesh_obj[0][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, walled_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
-            walled_flux_mesh_obj[1][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, walled_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
+            etched_flux_mesh_obj[0][i][:] = [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] 
+            etched_flux_mesh_obj[1][i][:] = [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] 
+            walled_flux_mesh_obj[0][i][:] = [ self.sim.add_flux( frq, self.dwvl, self.nwvl, walled_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] 
+            walled_flux_mesh_obj[1][i][:] = [ self.sim.add_flux( frq, self.dwvl, self.nwvl, walled_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] 
 
         # Minus incidence flux for etched mesh
         for i in range( NUM_H ):
             for j in range( NUM_H ):
-                etched_flux_mesh_obj[0][i][j] = self.sim.load_minus_flux_data( etched_flux_mesh_obj[0][i][j], null_etched_flux_mesh_data[0][i][j] )
-                etched_flux_mesh_obj[1][i][j] = self.sim.load_minus_flux_data( etched_flux_mesh_obj[1][i][j], null_etched_flux_mesh_data[1][i][j] )
+                self.sim.load_minus_flux_data( etched_flux_mesh_obj[0][i][j], null_etched_flux_mesh_data[0][i][j] )
+                self.sim.load_minus_flux_data( etched_flux_mesh_obj[1][i][j], null_etched_flux_mesh_data[1][i][j] )
 
         # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
 
         # Get the net flux data
-        #self.flux_box_data = { flux_names[i]:np.array( mp.get_fluxes( self.flux_box_obj[i]  ) ) for i in range( len( self.flux_box_obj ) ) }
+        self.flux_box_data = { flux_names[i]:np.array( mp.get_fluxes( self.flux_box_obj[i]  ) ) for i in range( len( self.flux_box_obj ) ) }
+
+        # Get the mesh flux data
+        self.etched_flux_mesh_data = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        self.walled_flux_mesh_data = np.zeros( (2,NUM_H,NUM_H) ).tolist()
+        for i in range( NUM_H ):
+            for i in range( NUM_H ):
+                self.etched_flux_mesh_data[0][i][j] = mp.get_fluxes( etched_flux_mesh_obj[0][i][j] )
+                self.etched_flux_mesh_data[1][i][j] = mp.get_fluxes( etched_flux_mesh_obj[1][i][j] )
+                self.walled_flux_mesh_data[0][i][j] = mp.get_fluxes( walled_flux_mesh_obj[0][i][j] )
+                self.walled_flux_mesh_data[1][i][j] = mp.get_fluxes( walled_flux_mesh_obj[1][i][j] )
+
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
-        """self.sim.plot2D(fields=mp.Ez,
+        self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                         output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()"""
+        plt.show()
 
     
         return 0
