@@ -169,6 +169,12 @@ class linear_gmot:
             except:
                 self.coating_mat = mat.Al
 
+            # Number of flux monitor postions in and out of the eatching for both vertical and horizontal
+            try:
+                self.flux_mesh_num = kwarg["flux_mesh_num"]
+            except:
+                self.flux_mesh_num = 10
+
         # Simulation greating builder
         try:
             self.greating_func = kwarg["greating_func"]
@@ -307,28 +313,28 @@ class linear_gmot:
         mesh_top = -0.5*sy + dpml + padding + self.chip_thickness + 2*self.coating_height + self.grating_height # Top mesh limit
 
         # MAKE 
-        NUM_H = 10
+        self.flux_mesh_num = 10
 
         # Defines the cenre points of each horizontal flux positon
-        mesh_pos_h_etch = np.linspace( mesh_start,mesh_mid, NUM_H, endpoint=False ) # Etched horizontal position
+        mesh_pos_h_etch = np.linspace( mesh_start,mesh_mid, self.flux_mesh_num, endpoint=False ) # Etched horizontal position
         mesh_pos_h_etch += 0.5*( mesh_pos_h_etch[1] - mesh_pos_h_etch[0] )
-        mesh_pos_h_wall = np.linspace( mesh_mid,mesh_end, NUM_H, endpoint=False ) # Walled horizontal postion
+        mesh_pos_h_wall = np.linspace( mesh_mid,mesh_end, self.flux_mesh_num, endpoint=False ) # Walled horizontal postion
         mesh_pos_h_wall += 0.5*( mesh_pos_h_wall[1] - mesh_pos_h_wall[0] )
         
         # The vetical postions of fluxes (etched and walled)
-        mesh_pos_v = np.linspace( mesh_bot, mesh_top, NUM_H, endpoint=False )
+        mesh_pos_v = np.linspace( mesh_bot, mesh_top, self.flux_mesh_num, endpoint=False )
         mesh_pos_v += 0.5*( mesh_pos_v[1] - mesh_pos_v[0] )
 
         # Etched points flux regions, the 2 first diemtions define if it's horizontal or vertacal flux
-        etched_flux_mesh_region = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        walled_flux_mesh_region = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        h_length_etch = ( mesh_mid - mesh_start )/NUM_H     # Flux monitor horizontal length in etching
-        v_length_etch = ( mesh_top - mesh_bot )/NUM_H       # " vertical length in etching
-        h_length_wall = ( mesh_end - mesh_mid )/NUM_H     # " horizontal length in the grating wall
-        v_length_wall = ( mesh_top - mesh_bot )/NUM_H       # " vetrical length in the grating wall
+        etched_flux_mesh_region = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        walled_flux_mesh_region = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        h_length_etch = ( mesh_mid - mesh_start )/self.flux_mesh_num     # Flux monitor horizontal length in etching
+        v_length_etch = ( mesh_top - mesh_bot )/self.flux_mesh_num       # " vertical length in etching
+        h_length_wall = ( mesh_end - mesh_mid )/self.flux_mesh_num     # " horizontal length in the grating wall
+        v_length_wall = ( mesh_top - mesh_bot )/self.flux_mesh_num       # " vetrical length in the grating wall
         
         # Repeat for each row
-        for i in range( NUM_H ):
+        for i in range( self.flux_mesh_num ):
             # Vertiacl flux in the etching
             etched_flux_mesh_region[0][i][:] = np.array( [ mp.FluxRegion( center=mp.Vector3( mesh_pos_h_etch[j], mesh_pos_v[i] ),
                                                                         size=mp.Vector3( x=h_length_etch ), 
@@ -461,8 +467,8 @@ class linear_gmot:
         self.incidence_flux_obj[3] = self.sim.add_flux( frq, dfrq, self.nwvl, flux_region[3] ) 
 
         # Set up the flux mesh objects
-        null_etched_flux_mesh_obj = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        for i in range( NUM_H ):
+        null_etched_flux_mesh_obj = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        for i in range( self.flux_mesh_num ):
             null_etched_flux_mesh_obj[0][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
             null_etched_flux_mesh_obj[1][i][:] = np.array( [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] )
 
@@ -476,9 +482,9 @@ class linear_gmot:
         self.incidence_flux_data = { flux_names[i]: np.array( mp.get_fluxes( self.incidence_flux_obj[i] ) ) for i in range( len( flux_names ) ) }
 
         # Get incdence etch flux mesh data
-        null_etched_flux_mesh_data = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        for i in range( NUM_H ): # for each row
-            for j in range( NUM_H ): # for each colom
+        null_etched_flux_mesh_data = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        for i in range( self.flux_mesh_num ): # for each row
+            for j in range( self.flux_mesh_num ): # for each colom
                 null_etched_flux_mesh_data[0][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[0][i][j] ) # Vertical flux
                 null_etched_flux_mesh_data[1][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[1][i][j] ) # Horizontal flux
 
@@ -508,9 +514,9 @@ class linear_gmot:
 
 
         # Set up the flux mesh objects
-        etched_flux_mesh_obj = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        walled_flux_mesh_obj = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        for i in range( NUM_H ):
+        etched_flux_mesh_obj = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        walled_flux_mesh_obj = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        for i in range( self.flux_mesh_num ):
             # Add eched flux object
             etched_flux_mesh_obj[0][i][:] = [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[0][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] 
             etched_flux_mesh_obj[1][i][:] = [ self.sim.add_flux( frq, self.dwvl, self.nwvl, etched_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] 
@@ -518,8 +524,8 @@ class linear_gmot:
             walled_flux_mesh_obj[1][i][:] = [ self.sim.add_flux( frq, self.dwvl, self.nwvl, walled_flux_mesh_region[1][i][j] ) for j in range( len( mesh_pos_h_etch ) ) ] 
 
         # Minus incidence flux for etched mesh
-        for i in range( NUM_H ):
-            for j in range( NUM_H ):
+        for i in range( self.flux_mesh_num ):
+            for j in range( self.flux_mesh_num ):
                 self.sim.load_minus_flux_data( etched_flux_mesh_obj[0][i][j], null_etched_flux_mesh_data[0][i][j] )
                 self.sim.load_minus_flux_data( etched_flux_mesh_obj[1][i][j], null_etched_flux_mesh_data[1][i][j] )
 
@@ -530,10 +536,10 @@ class linear_gmot:
         self.flux_box_data = { flux_names[i]:np.array( mp.get_fluxes( self.flux_box_obj[i]  ) ) for i in range( len( self.flux_box_obj ) ) }
 
         # Get the mesh flux data
-        self.etched_flux_mesh_data = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        self.walled_flux_mesh_data = np.zeros( (2,NUM_H,NUM_H) ).tolist()
-        for i in range( NUM_H ):
-            for i in range( NUM_H ):
+        self.etched_flux_mesh_data = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        self.walled_flux_mesh_data = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        for i in range( self.flux_mesh_num ):
+            for j in range( self.flux_mesh_num ):
                 self.etched_flux_mesh_data[0][i][j] = mp.get_fluxes( etched_flux_mesh_obj[0][i][j] )
                 self.etched_flux_mesh_data[1][i][j] = mp.get_fluxes( etched_flux_mesh_obj[1][i][j] )
                 self.walled_flux_mesh_data[0][i][j] = mp.get_fluxes( walled_flux_mesh_obj[0][i][j] )
@@ -837,7 +843,10 @@ class linear_gmot:
             "ff_dist": self.ff_dist,
             "frq_values": self.frq_values.tolist(),
             "chip_thickness": self.chip_thickness,
-            "coating_height": self.coating_height } )
+            "coating_height": self.coating_height,
+            "flux_mesh_num": self.flux_mesh_num,
+            "etched_flux_mesh_data": self.etched_flux_mesh_data,
+            "walled_flux_mesh_data": self.walled_flux_mesh_data } )
 
         output_data.update( { key:data.tolist() for key,data in self.flux_box_data.items() } )
         output_data.update( { ( 'in_' + key ):data.tolist() for key,data in self.incidence_flux_data.items() } )
