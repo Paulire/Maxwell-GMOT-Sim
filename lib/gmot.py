@@ -57,6 +57,8 @@ def load_data( fname=None, **kwarg ):
     input_data['Hx'] = eval( input_data['Hx'] )
     input_data['angles'] = eval( input_data['angles'] )
     input_data['points'] = eval( input_data['points'] )
+    input_data['walled_flux_mesh_data'] = eval( input_data['walled_flux_mesh_data'] )
+    input_data['etched_flux_mesh_data'] = eval( input_data['etched_flux_mesh_data'] )
 
     return input_data
 
@@ -102,6 +104,10 @@ class linear_gmot:
             flux_names = ['top','left','right','bot']
             self.flux_box_data = { key:np.array( sim_data[ key ] ) for key in flux_names }
             self.incidence_flux_data = { key:np.array( sim_data['in_' + key] ) for key in flux_names } 
+
+            self.null_etched_flux_mesh_data = sim_data["null_etched_flux_mesh_data"]
+            self.etched_flux_mesh_data = sim_data["etched_flux_mesh_data"]
+            self.walled_flux_mesh_data = sim_data["walled_flux_mesh_data"]
 
         # If no file is specifed, then the code shall use the input arguments
         else:
@@ -482,11 +488,11 @@ class linear_gmot:
         self.incidence_flux_data = { flux_names[i]: np.array( mp.get_fluxes( self.incidence_flux_obj[i] ) ) for i in range( len( flux_names ) ) }
 
         # Get incdence etch flux mesh data
-        null_etched_flux_mesh_data = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
+        self.null_etched_flux_mesh_data = np.zeros( (2,self.flux_mesh_num,self.flux_mesh_num) ).tolist()
         for i in range( self.flux_mesh_num ): # for each row
             for j in range( self.flux_mesh_num ): # for each colom
-                null_etched_flux_mesh_data[0][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[0][i][j] ) # Vertical flux
-                null_etched_flux_mesh_data[1][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[1][i][j] ) # Horizontal flux
+                self.null_etched_flux_mesh_data[0][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[0][i][j] ) # Vertical flux
+                self.null_etched_flux_mesh_data[1][i][j] = self.sim.get_flux_data( null_etched_flux_mesh_obj[1][i][j] ) # Horizontal flux
 
         self.sim.reset_meep()
 
@@ -526,8 +532,8 @@ class linear_gmot:
         # Minus incidence flux for etched mesh
         for i in range( self.flux_mesh_num ):
             for j in range( self.flux_mesh_num ):
-                self.sim.load_minus_flux_data( etched_flux_mesh_obj[0][i][j], null_etched_flux_mesh_data[0][i][j] )
-                self.sim.load_minus_flux_data( etched_flux_mesh_obj[1][i][j], null_etched_flux_mesh_data[1][i][j] )
+                self.sim.load_minus_flux_data( etched_flux_mesh_obj[0][i][j], self.null_etched_flux_mesh_data[0][i][j] )
+                self.sim.load_minus_flux_data( etched_flux_mesh_obj[1][i][j], self.null_etched_flux_mesh_data[1][i][j] )
 
         # Run for a second time
         self.sim.run( until_after_sources=mp.stop_when_fields_decayed(50,mp.Ez,n2f_point,1e-12 ) )
@@ -548,11 +554,11 @@ class linear_gmot:
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
-        self.sim.plot2D(fields=mp.Ez,
+        """self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                         output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()
+        plt.show()"""
 
     
         return 0
@@ -845,8 +851,9 @@ class linear_gmot:
             "chip_thickness": self.chip_thickness,
             "coating_height": self.coating_height,
             "flux_mesh_num": self.flux_mesh_num,
-            "etched_flux_mesh_data": self.etched_flux_mesh_data,
-            "walled_flux_mesh_data": self.walled_flux_mesh_data } )
+            "etched_flux_mesh_data": str( self.etched_flux_mesh_data ),
+            "walled_flux_mesh_data": str( self.walled_flux_mesh_data ),
+            "null_etched_flux_mesh_data": str( self.null_etched_flux_mesh_data ) } )
 
         output_data.update( { key:data.tolist() for key,data in self.flux_box_data.items() } )
         output_data.update( { ( 'in_' + key ):data.tolist() for key,data in self.incidence_flux_data.items() } )
