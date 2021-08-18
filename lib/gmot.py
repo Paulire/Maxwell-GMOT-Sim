@@ -111,6 +111,7 @@ class linear_gmot:
             self.walled_flux_mesh_data = np.array( sim_data["walled_flux_mesh_data"] )
             self.flux_mesh_num_horz = sim_data["flux_mesh_num_horz"]
             self.mesh_pos_vert = sim_data["mesh_pos_vert"]
+            self.mesh_pos_horz_etched = sim_data["mesh_pos_horz_etched"]
             self.flux_mesh_num_vert = sim_data["flux_mesh_num_vert"]
 
         # If no file is specifed, then the code shall use the input arguments
@@ -324,7 +325,7 @@ class linear_gmot:
         mesh_end = mesh_const + self.period*( mesh_period + 1) -0.5*self.grating_width # The end longitudinal postion for the monitors
         mesh_mid = mesh_const + self.period*( mesh_period ) + 0.5*self.grating_width # The middle edge of the etching
         mesh_bot = -0.5*sy + dpml + padding + self.chip_thickness + self.coating_height # Bottom of the mesh limit
-        mesh_top = -0.5*sy + dpml + padding + self.chip_thickness + 2*self.coating_height + self.grating_height # Top mesh limit
+        mesh_top = -0.5*sy + dpml + padding + self.chip_thickness + self.coating_height + self.grating_height # Top mesh limit
 
         # Defines the cenre points of each horizontal flux positon
         try:
@@ -355,6 +356,7 @@ class linear_gmot:
 
         # Saves the distance from the top of the grating for each mesh point
         self.mesh_pos_vert = mesh_top - mesh_pos_v
+        self.mesh_pos_horz_etched = mesh_start - mesh_pos_h_etch
         
         # Repeat for each row
         for i in range( self.flux_mesh_num_vert ):
@@ -868,7 +870,8 @@ class linear_gmot:
             "etched_flux_mesh_data": str( self.etched_flux_mesh_data.tolist() ),
             "walled_flux_mesh_data": str( self.walled_flux_mesh_data.tolist() ),
             "null_etched_flux_mesh_data": str( self.null_etched_flux_mesh_data.tolist() ),
-            "mesh_pos_vert": self.mesh_pos_vert.tolist() } )
+            "mesh_pos_vert": self.mesh_pos_vert.tolist(),
+            "mesh_pos_horz_etched": self.mesh_pos_horz_etched.tolist() } )
 
         output_data.update( { key:data.tolist() for key,data in self.flux_box_data.items() } )
         output_data.update( { ( 'in_' + key ):data.tolist() for key,data in self.incidence_flux_data.items() } )
@@ -1047,14 +1050,11 @@ class linear_gmot:
 
         # Generate plotting data
         y = self.etched_flux_mesh_data[ 0 , :,pos,wvl_index] 
-        w = self.walled_flux_mesh_data[ 0 , :,pos,wvl_index] 
-        z = y + w
+        z = self.null_etched_flux_mesh_data[0, :,pos,wvl_index]
 
         # Plot data
         fig, ax = plt.subplots( )
-        ax.plot( self.mesh_pos_vert, y, '-r' )
-        ax.plot( self.mesh_pos_vert, w, '-b' )
-        ax.plot( self.mesh_pos_vert, z, '-g' )
+        ax.plot( self.mesh_pos_vert, y-z, '-r' )
         ax.set_xlabel("Position (nm)", size="x-large")
         ax.set_ylabel("Normilsed Flux", size="x-large")
         ax.tick_params( direction='in', axis='both', length=4, right=True, top=True, which="both" )
@@ -1098,3 +1098,18 @@ class linear_gmot:
         #ax.set_xlim( wvl[-1], wvl[0] )
         #ax.set_ylim( 0,100 )
         plt.show()
+
+    def eached_mesh_colour_map( self, **kwarg ):
+        
+
+        xx,yy = np.meshgrid( self.mesh_pos_horz_etched, self.mesh_pos_vert )
+        w = self.etched_flux_mesh_data[0,:,:,51] 
+
+        fig, ax = plt.subplots( )
+
+        plot = ax.contourf( xx,yy,w )
+        cbar = fig.colorbar(plot)
+        plt.show()
+
+        plt.close()
+
