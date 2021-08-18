@@ -305,11 +305,11 @@ class linear_gmot:
 
         flux_region[0] = mp.Near2FarRegion( center=n2f_point, size=mp.Vector3( chip_size_x ), direction=mp.Y, weight=-1 )
         flux_region[1] = mp.FluxRegion( center=mp.Vector3( -0.5*( sx ) + dpml + padding ,
-                                                            0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding + self.coating_height  ) ) ),
-                                        size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding + self.coating_height ) ),
+                                                            0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding   ) ) ),
+                                        size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding ) ),
                                         weight=1.0 )
         flux_region[2] = mp.FluxRegion( center=mp.Vector3( 0.5*( sx ) - dpml - padding ,
-                                                           0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding + self.coating_height ) ) ),
+                                                           0.5*( n2f_y_pos + ( 0.5*( -sy ) + dpml + padding ) ) ),
                                         size=mp.Vector3( y=n2f_y_pos - ( 0.5*( -sy ) + dpml + padding ) ),
                                         weight=-1.0 )
         flux_region[3] = mp.FluxRegion( center=mp.Vector3( y=0.5*( - sy ) + dpml + padding ),
@@ -564,11 +564,11 @@ class linear_gmot:
 
         # Store the flux frequncies
         self.frq_values =  np.array( mp.get_near2far_freqs( self.flux_box_obj[0] ) ) 
-        self.sim.plot2D(fields=mp.Ez,
+        """self.sim.plot2D(fields=mp.Ez,
                         field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none' },
                         boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                         output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
-        plt.show()
+        plt.show()"""
     
         return 0
 
@@ -608,6 +608,8 @@ class linear_gmot:
             raise TypeError( "'fname' must be a string" )
         else:
             plt.savefig( fname, dpi=150 )
+
+        plt.close()
 
     # Users invoke this request computaion of the far fields
     def get_far_field( self, ff_dist=5e3, ff_pnt=500, theta=np.pi/4, **kwarg ):
@@ -678,7 +680,7 @@ class linear_gmot:
         plt.tick_params( which='minor', length=2, direction='in'  )
         #plt.savefig( "near_far_flux_v2.pdf", dpi=300 )
         plt.show()
-        plt.clf()
+        plt.close()
 
         return 0
 
@@ -777,7 +779,7 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
-        plt.clf()
+        plt.close()
 
         return 0
 
@@ -811,6 +813,8 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
+
+        plt.close()
 
     
     # Allows simulation data to be saved to a JSON file
@@ -921,7 +925,7 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
-        plt.clf()
+        plt.close()
 
         return 0
 
@@ -1000,7 +1004,7 @@ class linear_gmot:
         else:
             plt.show()
 
-        plt.clf()
+        plt.close()
 
     def default_output( self, fname=None, include_animation=False, include_settup=False, **kwarg ):
         if fname == None:
