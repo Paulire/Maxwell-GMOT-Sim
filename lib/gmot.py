@@ -496,6 +496,8 @@ class linear_gmot:
         else:
             plt.savefig( fname, dpi=150 )
 
+        plt.close()
+
     # Users invoke this request computaion of the far fields
     def get_far_field( self, ff_dist=5e3, ff_pnt=500, theta=np.pi/4, **kwarg ):
         if self.n2f_obj == None:
@@ -565,7 +567,7 @@ class linear_gmot:
         plt.tick_params( which='minor', length=2, direction='in'  )
         #plt.savefig( "near_far_flux_v2.pdf", dpi=300 )
         plt.show()
-        plt.clf()
+        plt.close()
 
         return 0
 
@@ -664,7 +666,7 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
-        plt.clf()
+        plt.close()
 
         return 0
 
@@ -698,6 +700,8 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
+
+        plt.close()
 
     
     # Allows simulation data to be saved to a JSON file
@@ -802,7 +806,7 @@ class linear_gmot:
             plt.show()
         else:
             plt.savefig( fname, dpi=dpi )
-        plt.clf()
+        plt.close()
 
         return 0
 
@@ -881,7 +885,7 @@ class linear_gmot:
         else:
             plt.show()
 
-        plt.clf()
+        plt.close()
 
     def default_output( self, fname=None, include_animation=False, include_settup=False, **kwarg ):
         if fname == None:
