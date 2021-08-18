@@ -16,10 +16,10 @@ def silicon_metal_coated( self, cen, size_x, size_y ):
                       center=mp.Vector3( cen[0], cen[1]+self.grating_height + 0.5*self.coating_height ),
                       material=self.coating_mat ),
             mp.Block( size=mp.Vector3( 0.5*self.grating_width, self.coating_height ),
-                      center=mp.Vector3( cen[0] + 0.5*self.period - 0.25*self.grating_width, cen[1] + 0.5*self.coating_height),
+                      center=mp.Vector3( cen[0] + 0.25*self.grating_width + 0.5*slit_length, cen[1] + 0.5*self.coating_height),
                       material=self.coating_mat ),
             mp.Block( size=mp.Vector3( 0.5*self.grating_width, self.coating_height ),
-                      center=mp.Vector3( cen[0] - 0.5*self.period + 0.25*self.grating_width, cen[1] + 0.5*self.coating_height ),
+                      center=mp.Vector3( cen[0] - 0.25*self.grating_width - 0.5*slit_length, cen[1] + 0.5*self.coating_height ),
                       material=self.coating_mat )]
     return geo
 
