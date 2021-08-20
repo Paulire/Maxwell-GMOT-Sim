@@ -583,7 +583,7 @@ class linear_gmot:
                 boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3},
                 eps_parameters={'cmap':'binary'},
                 #realtime=True,
-                #output_plane=mp.Volume( size=mp.Vector3( 2, 0.8 ), center=mp.Vector3( y=-1.8 ) ) )
+                #output_plane=mp.Volume( size=mp.Vector3( 1, 0.8 ), center=mp.Vector3( y=-3 ) ) )
                 output_plane=mp.Volume( size=mp.Vector3( sx, sy ) ))
 
         self.sim.run(mp.at_every(0.6,animate), until_after_sources=mp.stop_when_fields_decayed( 5,mp.Ez, mp.Vector3(), 1e-6 ))
@@ -1051,17 +1051,20 @@ class linear_gmot:
         # Generate plotting data
         y = self.etched_flux_mesh_data[ 0 , :,pos,wvl_index] 
         z = self.null_etched_flux_mesh_data[0, :,pos,wvl_index]
+        w = (y-z)
+        w /= np.max(w)
+
 
         # Plot data
         fig, ax = plt.subplots( )
-        ax.plot( self.mesh_pos_vert, y-z, '-r' )
-        ax.set_xlabel("Position (nm)", size="x-large")
+        ax.plot( 1000*np.array( self.mesh_pos_vert ), w, '-r' )
+        ax.set_xlabel("Depth (nm)", size="x-large")
         ax.set_ylabel("Normilsed Flux", size="x-large")
         ax.tick_params( direction='in', axis='both', length=4, right=True, top=True, which="both" )
         ax.minorticks_on()
         ax.tick_params( which='minor', length=2, direction='in'  )
-        #ax.set_xlim( wvl[-1], wvl[0] )
-        #ax.set_ylim( 0,100 )
+        ax.set_xlim( 0,195 )
+        plt.savefig( "test.pdf", dpi=150 )
         plt.show()
 
     def plot_flux_mesh_segment_wall( self, pos=None, wvl=None, direction="vertical", **kwarg ):
